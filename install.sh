@@ -116,6 +116,12 @@ install_base() {
     # Detect project state first
     detect_project
 
+    # Clean up old command structure (for updates from older versions)
+    rm -rf .claude/commands/worktree 2>/dev/null || true
+    rm -f .claude/commands/init.md 2>/dev/null || true
+    rm -f .claude/commands/analyze.md 2>/dev/null || true
+    rm -f .claude/commands/quick-parallel.md 2>/dev/null || true
+
     # Create directories
     mkdir -p .claude/commands/cpt
     mkdir -p .claude/skills/parallel-executor
