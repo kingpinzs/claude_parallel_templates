@@ -7,6 +7,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIDS_FILE="../.parallel-pids"
 LOGS_DIR="../logs"
+SESSION_DIR="../.parallel-session"
+SESSION_FILE="$SESSION_DIR/session.json"
 AUTO_MERGE=false
 POLL_INTERVAL=30
 
@@ -33,6 +35,100 @@ log() { echo -e "${GREEN}[orchestrate]${NC} $1"; }
 warn() { echo -e "${YELLOW}[orchestrate]${NC} $1"; }
 error() { echo -e "${RED}[orchestrate]${NC} $1"; }
 
+# Update session status
+update_session_status() {
+    local status=$1
+    if [[ -f "$SESSION_FILE" ]] && command -v jq &> /dev/null; then
+        local temp_file=$(mktemp)
+        jq --arg status "$status" \
+           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+           '.status = $status | .updated_at = $updated' \
+           "$SESSION_FILE" > "$temp_file" && mv "$temp_file" "$SESSION_FILE"
+    fi
+}
+
+# Update individual agent status
+update_agent_status() {
+    local name=$1
+    local status=$2
+    local agent_file="$SESSION_DIR/agents/${name}.json"
+
+    if [[ -f "$agent_file" ]] && command -v jq &> /dev/null; then
+        local temp_file=$(mktemp)
+        local completed_at="null"
+        [[ "$status" == "completed" || "$status" == "failed" ]] && completed_at="\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\""
+
+        jq --arg status "$status" \
+           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+           --argjson completed "$completed_at" \
+           '.status = $status | .updated_at = $updated | .completed_at = $completed' \
+           "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+    fi
+}
+
+# Detect agent phase from log file
+detect_agent_phase() {
+    local logfile=$1
+    local phase="unknown"
+
+    if [[ -f "$logfile" ]]; then
+        # Look for phase markers in reverse order (most recent first)
+        if grep -q "ENTERING PHASE 4" "$logfile" 2>/dev/null; then
+            phase="simplification"
+        elif grep -q "ENTERING PHASE 3" "$logfile" 2>/dev/null; then
+            phase="verification"
+        elif grep -q "ENTERING PHASE 2" "$logfile" 2>/dev/null; then
+            phase="implementation"
+        elif grep -q "ENTERING PHASE 1.5" "$logfile" 2>/dev/null; then
+            phase="how"
+        elif grep -q "ENTERING PHASE 1.4" "$logfile" 2>/dev/null; then
+            phase="plan"
+        elif grep -q "ENTERING PHASE 1.3" "$logfile" 2>/dev/null; then
+            phase="logic"
+        elif grep -q "ENTERING PHASE 1.2" "$logfile" 2>/dev/null; then
+            phase="analysis"
+        elif grep -q "ENTERING PHASE 1.1" "$logfile" 2>/dev/null; then
+            phase="requirements"
+        fi
+    fi
+    echo "$phase"
+}
+
+# Update agent phase in state file
+update_agent_phase() {
+    local name=$1
+    local phase=$2
+    local agent_file="$SESSION_DIR/agents/${name}.json"
+
+    if [[ -f "$agent_file" ]] && command -v jq &> /dev/null && [[ "$phase" != "unknown" ]]; then
+        local temp_file=$(mktemp)
+        jq --arg phase "$phase" \
+           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+           '.phase.current = $phase | .updated_at = $updated | .recovery_point.phase = $phase' \
+           "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+    fi
+}
+
+# Handle interrupt - mark session as interrupted for resume
+handle_interrupt() {
+    echo ""
+    warn "Interrupt received - marking session for resume..."
+    update_session_status "interrupted"
+
+    # Update any running agents as interrupted
+    while IFS=: read -r pid name; do
+        if kill -0 "$pid" 2>/dev/null; then
+            update_agent_status "$name" "interrupted"
+        fi
+    done < "$PIDS_FILE"
+
+    log "Session state saved. Resume with: /cpt:resume"
+    exit 130
+}
+
+# Set up interrupt handler
+trap handle_interrupt SIGINT SIGTERM
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 echo "               PARALLEL AGENT ORCHESTRATOR"
@@ -52,7 +148,7 @@ TOTAL=$(wc -l < "$PIDS_FILE")
 log "Monitoring $TOTAL parallel agents..."
 echo ""
 
-# Function to check agent status
+# Function to check agent status and update state files
 check_status() {
     local running=0
     local completed=0
@@ -63,10 +159,15 @@ check_status() {
 
         if kill -0 "$pid" 2>/dev/null; then
             ((running++))
+            # Update phase for running agents
+            phase=$(detect_agent_phase "$logfile")
+            update_agent_phase "$name" "$phase"
         elif [[ -f "$logfile" ]] && grep -qi "error\|failed\|exception\|panic" "$logfile" 2>/dev/null; then
             ((failed++))
+            update_agent_status "$name" "failed"
         else
             ((completed++))
+            update_agent_status "$name" "completed"
         fi
     done < "$PIDS_FILE"
 
@@ -109,6 +210,7 @@ while true; do
         echo ""
 
         if [[ $failed -gt 0 ]]; then
+            update_session_status "failed"
             error "$failed agent(s) failed. Check logs:"
             echo ""
             while IFS=: read -r pid name; do
@@ -125,6 +227,7 @@ while true; do
         fi
 
         echo "${GREEN}✓${NC} All $completed agents completed successfully!"
+        update_session_status "completed"
         echo ""
 
         # Show what was completed
@@ -138,6 +241,12 @@ while true; do
             log "Auto-merge enabled. Starting merge..."
             echo ""
             "$SCRIPT_DIR/merge.sh" --cleanup
+
+            # Auto-cleanup session on successful merge
+            if [[ $? -eq 0 ]] && [[ -d "$SESSION_DIR" ]]; then
+                log "Cleaning up session state (auto-cleanup on success)..."
+                rm -rf "$SESSION_DIR"
+            fi
         else
             echo "Next steps:"
             echo "  1. Review changes: git -C ../<worktree> log -1"

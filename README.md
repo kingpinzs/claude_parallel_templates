@@ -57,12 +57,17 @@ base/
 │   │   ├── spawn.md                    # /cpt:spawn
 │   │   ├── parallel.md                 # /cpt:parallel
 │   │   ├── list.md                     # /cpt:list
-│   │   └── done.md                     # /cpt:done
+│   │   ├── done.md                     # /cpt:done
+│   │   └── resume.md                   # /cpt:resume
 │   ├── skills/parallel-executor/
 │   │   ├── SKILL.md                    # Auto-activation
-│   │   ├── spawn.sh                    # Spawn agents
-│   │   ├── status.sh                   # Check status
-│   │   └── merge.sh                    # Merge worktrees
+│   │   ├── spawn.sh                    # Spawn agents + session state
+│   │   ├── status.sh                   # Status with phase tracking
+│   │   ├── orchestrate.sh              # Monitor & coordinate agents
+│   │   ├── merge.sh                    # Merge worktrees
+│   │   ├── plan.sh                     # Persistent plan management
+│   │   ├── checkpoint.sh               # Record progress checkpoints
+│   │   └── resume.sh                   # Resume interrupted sessions
 │   └── settings.json                   # Permissions
 ```
 
@@ -74,6 +79,9 @@ base/
 - `/cpt:parallel "task1, task2, task3"` - Multiple agents
 - `/cpt:list` - Show all worktrees
 - `/cpt:done` - Merge and cleanup
+- `/cpt:resume` - Resume interrupted parallel session
+- `/cpt:plan-status` - Show persistent plan progress
+- `/cpt:continue` - Continue working on pending tasks
 
 ### BMAD Template
 
@@ -129,10 +137,11 @@ spec-kit/
 2. **Analyze** - `/cpt:init` analyzes your codebase and asks clarifying questions
 3. **Plan** - Describe your goal; Claude creates task breakdown with `[P]` markers for independent tasks
 4. **Spawn** - If 2+ independent tasks exist, Claude asks to spawn parallel agents
-5. **Worktree Creation** - Each task gets isolated git worktree
-6. **Agent Execution** - Headless Claude runs in each worktree
-7. **Monitoring** - Watch logs with `tail -f ../logs/*.log`
-8. **Merge** - Combine results back to main with `/cpt:done`
+5. **Worktree Creation** - Each task gets isolated git worktree + session state saved
+6. **Agent Execution** - Headless Claude runs in each worktree (progress tracked)
+7. **Monitoring** - Watch logs or use status.sh for phase-aware progress
+8. **Recovery** - If interrupted, resume with `/cpt:resume` (picks up from checkpoints)
+9. **Merge** - Combine results back to main with `/cpt:done`
 
 ## Task Format
 
@@ -155,6 +164,11 @@ Use the bare repo pattern for clean organization:
 my-project/
 ├── .bare/                  # Git database
 ├── .git                    # Pointer to .bare
+├── .parallel-pids          # Running agent PIDs
+├── .parallel-scopes        # File scope assignments
+├── .parallel-session/      # Session state (crash recovery)
+│   ├── session.json        # Master session state
+│   └── agents/             # Per-agent progress files
 ├── logs/                   # Agent output logs
 ├── main/                   # Main branch worktree
 │   ├── .claude/            # Templates installed here
@@ -186,7 +200,7 @@ cd main
 # Watch all agent logs
 tail -f ../logs/*.log
 
-# Check status (one-time)
+# Check status with phase tracking (shows: running/complete, current phase)
 .claude/skills/parallel-executor/status.sh
 
 # Orchestrator: Monitor until all complete, then merge automatically
@@ -199,6 +213,14 @@ tail -f ../logs/*.log
 .claude/skills/parallel-executor/orchestrate.sh --poll-interval=10
 ```
 
+**Phase Tracking:** Status shows which RALPH phase each agent is in:
+- `ralph` - Requirements/Analysis/Logic/Plan/How
+- `impl` - TDD Implementation
+- `verify` - Verification
+- `cleanup` - Code simplification
+
+**Interrupt Handling:** Press Ctrl+C during orchestration to save session state for later resume.
+
 ## Merging
 
 ```bash
@@ -207,6 +229,110 @@ tail -f ../logs/*.log
 
 # With cleanup (remove worktrees after merge)
 .claude/skills/parallel-executor/merge.sh --cleanup
+```
+
+## Crash Recovery & Resume
+
+Sessions can be resumed after interruption (Ctrl+C, terminal close, crash):
+
+```bash
+# Check if there's a resumable session
+.claude/skills/parallel-executor/resume.sh --check-only
+
+# Resume interrupted agents automatically
+.claude/skills/parallel-executor/resume.sh
+
+# Or use the command
+/cpt:resume
+```
+
+**How it works:**
+1. Session state saved to `.parallel-session/session.json`
+2. Per-agent progress tracked in `.parallel-session/agents/<name>.json`
+3. Git commits serve as natural checkpoints
+4. Agents announce phase transitions for tracking
+5. On resume: agents restart with context from last checkpoint
+
+**Recovery scenarios:**
+- **Terminal closed** → Agents continue running (detached), orchestrator can resume monitoring
+- **Ctrl+C pressed** → Session marked "interrupted", resume picks up where you left off
+- **Agent failed** → Can retry from last checkpoint with full context
+- **System crash** → Resume from last git commit, uncommitted changes are stashed
+
+**Auto-cleanup:** Session state is automatically deleted after successful merge.
+
+## Persistent Planning (Cross-Session Continuity)
+
+Plans are stored in git, enabling work to continue across sessions and machines:
+
+```
+project/
+└── .claude/
+    └── parallel-plan.json    # Committed to git
+```
+
+### How It Works
+
+1. **Create a plan** with `/cpt:quick "goal"` or let Claude analyze your requirements
+2. **Tasks are tracked** in the manifest with status (pending/in_progress/merged)
+3. **Spawn updates the plan** - tasks marked `in_progress` with branch name
+4. **Merge updates the plan** - tasks marked `merged` after successful merge
+5. **Pull on any machine** - Claude auto-detects the plan and shows status
+
+### Workflow Example
+
+**Day 1: Start the project**
+```bash
+/cpt:quick "Build authentication system"
+
+# Claude creates plan with tasks:
+# - oauth-client [P]
+# - password-reset [P]
+# - 2fa (depends: oauth-client)
+# - session-management [P]
+
+# Spawns 3 independent agents
+# Work completes, you merge and push
+```
+
+**Day 2: Continue on another machine**
+```bash
+git pull
+
+# Claude detects active plan on startup:
+# "Active plan: Build authentication system"
+# "3 tasks merged, 1 pending (2fa)"
+
+/cpt:continue    # Spawns agent for 2fa (dependency now met)
+/cpt:done        # Merge final work
+# Plan marked "completed"
+```
+
+### Commands
+
+```bash
+# View plan status
+/cpt:plan-status
+
+# Continue with pending tasks
+/cpt:continue
+
+# Archive completed plan and start fresh
+.claude/skills/parallel-executor/plan.sh archive
+```
+
+### Plan Schema
+
+```json
+{
+  "plan_id": "plan_20260114_abc123",
+  "goal": "Build authentication system",
+  "status": "in_progress",
+  "tasks": [
+    {"id": "oauth", "status": "merged", "depends_on": []},
+    {"id": "2fa", "status": "pending", "depends_on": ["oauth"]}
+  ]
+}
 ```
 
 ## Updating
@@ -242,7 +368,17 @@ Edit `CLAUDE.md` to adjust:
 - Claude Code CLI
 - Git 2.20+
 - Bash 4+
+- jq (recommended for crash recovery features)
 - (Optional) Node.js for npm projects
+
+Install jq if not present:
+```bash
+# Ubuntu/Debian
+sudo apt install jq
+
+# macOS
+brew install jq
+```
 
 ## License
 

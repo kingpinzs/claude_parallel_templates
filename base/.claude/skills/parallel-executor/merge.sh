@@ -4,11 +4,17 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT=$(basename $(pwd))
 PIDS_FILE="../.parallel-pids"
+PLAN_FILE=".claude/parallel-plan.json"
+SESSION_DIR="../.parallel-session"
 CLEANUP=false
 
 [[ "$1" == "--cleanup" ]] && CLEANUP=true
+
+# Source plan management functions
+source "$SCRIPT_DIR/plan.sh" 2>/dev/null || true
 
 # Colors
 RED='\033[0;31m'
@@ -73,6 +79,16 @@ for wt in $WORKTREES; do
         log "  Merged successfully"
         ((merged++))
 
+        # Update persistent plan: mark task as merged
+        if [[ -f "$PLAN_FILE" ]]; then
+            # Extract task ID from branch name (feature/task-name -> task-name)
+            task_id="${branch#feature/}"
+            if [[ -n "$task_id" ]]; then
+                plan_set_task_status "$task_id" "merged" 2>/dev/null || true
+                log "  Plan updated: $task_id -> merged"
+            fi
+        fi
+
         if $CLEANUP; then
             log "  Cleaning up worktree..."
             cd ..
@@ -110,10 +126,18 @@ else
     fi
 fi
 
-# Cleanup PID file
+# Cleanup PID file and session state
 if $CLEANUP && [[ $failed -eq 0 ]] && [[ $skipped -eq 0 ]]; then
     rm -f "$PIDS_FILE"
+    rm -f "../.parallel-scopes"
     rm -rf ../logs
+    rm -rf "$SESSION_DIR"
     git worktree prune
-    log "Cleanup complete"
+    log "Cleanup complete (session state removed)"
+fi
+
+# Show plan status if plan exists
+if [[ -f "$PLAN_FILE" ]]; then
+    echo ""
+    plan_status
 fi

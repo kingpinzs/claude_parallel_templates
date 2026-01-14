@@ -109,15 +109,59 @@ Create a scope map for parallel task assignment:
    - If a task requires multiple scopes, it should NOT be parallelized
    - Shared config changes must be queued for post-merge
 
-## Step 5: Enter Plan Mode
+## Step 5: Check for Existing Plan
+
+Check if a persistent plan already exists:
+
+```bash
+if [[ -f ".claude/parallel-plan.json" ]]; then
+    echo "Found existing plan:"
+    .claude/skills/parallel-executor/plan.sh status
+fi
+```
+
+If an active plan exists, ask: "Continue with existing plan, or create a new one?"
+
+## Step 6: Offer Plan Creation from Detected Work
+
+If GitHub issues, TODOs, or other work items were detected, offer to create a plan:
+
+```
+────────────────────────────────────────
+📋 Detected Work Items
+────────────────────────────────────────
+GitHub Issues (parallelizable):
+  - #42: Add OAuth support         → src/auth/
+  - #33: Add dark mode             → src/ui/
+
+TODOs in code:
+  - TODO: Add caching layer        → src/cache/
+  - FIXME: Memory leak in parser   → src/parser/
+
+Would you like to create a persistent plan from these items?
+This allows you to:
+  • Track progress across sessions/machines
+  • Run /cpt:continue to spawn agents
+  • See status with /cpt:plan-status
+```
+
+**On confirmation:**
+```bash
+source .claude/skills/parallel-executor/plan.sh
+plan_init "Project work from initialization"
+# Add detected items as tasks...
+```
+
+## Step 7: Enter Plan Mode
 
 After initialization, automatically enter plan mode to:
 
 1. Present a summary of the project analysis
 2. Show the scope map for parallel development
 3. Identify potential areas for parallel development
-4. Suggest an initial task breakdown if the user has a goal in mind
-5. Wait for user approval before any implementation
+4. Show existing plan status (if any)
+5. Suggest an initial task breakdown if the user has a goal in mind
+6. Wait for user approval before any implementation
 
 ## Output Format
 
@@ -164,6 +208,24 @@ Available scopes:
 
 Forbidden files (no parallel modification):
   - package.json, tsconfig.json, etc.
+
+📋 Existing Plan
+────────────────────
+[If .claude/parallel-plan.json exists, show status:]
+  Plan: plan_20260114_abc123
+  Goal: Build authentication system
+  Progress: 2/5 tasks merged
+  Ready to continue: 2 tasks
+
+[If no plan exists:]
+  No persistent plan found.
+  Use /cpt:quick "goal" or let me create one from detected work.
+
+📝 Detected Work Items
+────────────────────
+GitHub Issues: 5 open (3 parallelizable)
+TODOs: 12 found
+FIXMEs: 3 found
 
 ❓ Questions
 ────────────────────

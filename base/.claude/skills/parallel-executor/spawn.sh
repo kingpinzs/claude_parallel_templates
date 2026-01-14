@@ -16,11 +16,19 @@ PROJECT=$(basename $(pwd))
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
 SCOPES_FILE="../.parallel-scopes"
+SESSION_DIR="../.parallel-session"
+PLAN_FILE=".claude/parallel-plan.json"
 MAX_PARALLEL=10
 MAX_TURNS=100
 AUTO_ORCHESTRATE=true
 AUTO_MERGE=true
 SCOPED_MODE=false
+SESSION_ID="sess_$(date +%Y%m%d_%H%M%S)_$(head -c 4 /dev/urandom | xxd -p)"
+FROM_PLAN=false
+PLAN_GOAL=""
+
+# Source plan management functions
+source "$SCRIPT_DIR/plan.sh" 2>/dev/null || true
 
 # Check if ralph-wiggum plugin is available
 RALPH_AVAILABLE=false
@@ -37,6 +45,90 @@ NC='\033[0m'
 log() { echo -e "${GREEN}[spawn]${NC} $1"; }
 warn() { echo -e "${YELLOW}[spawn]${NC} $1"; }
 error() { echo -e "${RED}[spawn]${NC} $1"; exit 1; }
+
+# Initialize session state
+init_session() {
+    local task_count=$1
+    local main_worktree=$(pwd)
+
+    mkdir -p "$SESSION_DIR/agents"
+
+    cat > "$SESSION_DIR/session.json" << EOF
+{
+  "version": "1.0",
+  "session_id": "$SESSION_ID",
+  "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "status": "running",
+  "main_worktree": "$main_worktree",
+  "auto_merge": $AUTO_MERGE,
+  "max_turns": $MAX_TURNS,
+  "total_agents": $task_count,
+  "agents": []
+}
+EOF
+    log "Session initialized: $SESSION_ID"
+}
+
+# Create agent state file
+create_agent_state() {
+    local name=$1
+    local task=$2
+    local scope=$3
+    local worktree=$4
+    local branch=$5
+    local pid=$6
+
+    cat > "$SESSION_DIR/agents/${name}.json" << EOF
+{
+  "name": "$name",
+  "session_id": "$SESSION_ID",
+  "task": "$task",
+  "scope": "$scope",
+  "worktree": "$worktree",
+  "branch": "$branch",
+  "status": "running",
+  "pid": $pid,
+  "started_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "completed_at": null,
+  "phase": {
+    "current": "requirements",
+    "completed": []
+  },
+  "commits": [],
+  "files_modified": [],
+  "recovery_point": {
+    "phase": "requirements",
+    "resume_prompt": "Continue with Phase 1.1 - restate the task in your own words."
+  }
+}
+EOF
+}
+
+# Update session.json with agent info
+add_agent_to_session() {
+    local name=$1
+    local task=$2
+    local scope=$3
+    local worktree=$4
+    local pid=$5
+
+    # Use temp file for atomic update
+    local temp_file=$(mktemp)
+
+    # Add agent to the agents array using jq if available, else sed
+    if command -v jq &> /dev/null; then
+        jq --arg name "$name" \
+           --arg task "$task" \
+           --arg scope "$scope" \
+           --arg worktree "$worktree" \
+           --argjson pid "$pid" \
+           '.agents += [{"name": $name, "task": $task, "scope": $scope, "worktree": $worktree, "pid": $pid, "status": "running"}] | .updated_at = now | .updated_at = (now | strftime("%Y-%m-%dT%H:%M:%SZ"))' \
+           "$SESSION_DIR/session.json" > "$temp_file"
+        mv "$temp_file" "$SESSION_DIR/session.json"
+    fi
+}
 
 # Check for Claude CLI
 if ! command -v claude &> /dev/null; then
@@ -62,6 +154,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --scoped)
             SCOPED_MODE=true
+            shift
+            ;;
+        --from-plan)
+            FROM_PLAN=true
+            shift
+            ;;
+        --goal=*)
+            PLAN_GOAL="${1#*=}"
             shift
             ;;
         --file)
@@ -102,14 +202,59 @@ done
 # Add positional args as tasks
 TASKS+=("${POSITIONAL[@]}")
 
+# Declare associative array for task-to-plan-id mapping (must be before use)
+declare -A TASK_TO_PLAN_ID
+
+# Handle --from-plan mode: load tasks from existing plan
+if $FROM_PLAN; then
+    if [[ ! -f "$PLAN_FILE" ]]; then
+        error "No plan exists. Create one first with /cpt:plan or provide tasks directly."
+    fi
+
+    log "Loading tasks from plan..."
+    ready_tasks=$(plan_get_ready_tasks)
+    task_count=$(echo "$ready_tasks" | jq 'length')
+
+    if [[ "$task_count" -eq 0 ]]; then
+        log "No ready tasks in plan. Either all are complete or dependencies are unmet."
+        plan_status
+        exit 0
+    fi
+
+    # Convert ready tasks to our format
+    TASKS=()
+    while IFS= read -r task_json; do
+        id=$(echo "$task_json" | jq -r '.id')
+        desc=$(echo "$task_json" | jq -r '.description // .id')
+        scope=$(echo "$task_json" | jq -r '.scope // "*"')
+        if [[ "$scope" != "*" ]] && [[ -n "$scope" ]]; then
+            TASKS+=("$desc|$scope")
+            SCOPED_MODE=true
+        else
+            TASKS+=("$desc")
+        fi
+        # Store mapping of task description to plan ID
+        TASK_TO_PLAN_ID["$desc"]="$id"
+    done < <(echo "$ready_tasks" | jq -c '.[]')
+fi
+
 # Validate
 [[ ${#TASKS[@]} -eq 0 ]] && error "No tasks provided"
 [[ ${#TASKS[@]} -gt $MAX_PARALLEL ]] && error "Too many tasks (max $MAX_PARALLEL)"
+
+# Create/update plan if goal is provided
+if [[ -n "$PLAN_GOAL" ]] && [[ ! -f "$PLAN_FILE" ]]; then
+    log "Creating persistent plan: $PLAN_GOAL"
+    plan_init "$PLAN_GOAL"
+fi
 
 # Setup
 mkdir -p "$LOGS_DIR"
 > "$PIDS_FILE"
 > "$SCOPES_FILE"
+
+# Initialize session state for crash recovery
+init_session ${#TASKS[@]}
 
 log "Spawning ${#TASKS[@]} parallel agents..."
 if $SCOPED_MODE; then
@@ -176,6 +321,28 @@ RUNNER_EOF
     disown $pid
 
     echo "$pid:$name" >> "$PIDS_FILE"
+
+    # Create agent state for crash recovery
+    create_agent_state "$name" "$task" "$scope" "$worktree" "$branch" "$pid"
+    add_agent_to_session "$name" "$task" "$scope" "$worktree" "$pid"
+
+    # Update persistent plan if exists
+    if [[ -f "$PLAN_FILE" ]]; then
+        # Get plan task ID (from --from-plan mapping or generate from name)
+        plan_task_id="${TASK_TO_PLAN_ID[$task]:-$name}"
+
+        # Check if task exists in plan
+        existing=$(jq -r --arg id "$plan_task_id" '.tasks[] | select(.id == $id) | .id' "$PLAN_FILE" 2>/dev/null)
+
+        if [[ -z "$existing" ]]; then
+            # Add task to plan if not present
+            plan_add_task "$plan_task_id" "$task" "$scope"
+        fi
+
+        # Mark task as in_progress in plan
+        plan_set_task_status "$plan_task_id" "in_progress" "$branch" "$worktree"
+    fi
+
     log "  Spawned: $name (PID: $pid)"
 done
 

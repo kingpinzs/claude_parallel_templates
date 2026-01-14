@@ -98,9 +98,53 @@ Testing
 Run /init to set up for development, or describe what you'd like to work on.
 ```
 
+## Step 6: Check for Existing Plan
+
+After the analysis, check if a persistent plan already exists:
+
+```bash
+if [[ -f ".claude/parallel-plan.json" ]]; then
+    # Show existing plan status
+    .claude/skills/parallel-executor/plan.sh status
+fi
+```
+
+## Step 7: Offer Plan Creation
+
+If parallelizable work is detected (2+ independent issues/TODOs), offer to create a plan:
+
+```
+────────────────────────────────────────
+Detected Parallelizable Work
+────────────────────────────────────────
+Found 4 independent items that could run in parallel:
+  - Issue #42: Add OAuth support         → src/auth/
+  - Issue #33: Add dark mode             → src/ui/theme/
+  - TODO: Implement caching              → src/cache/
+  - Issue #35: Improve test coverage     → tests/
+
+Would you like to create a persistent plan from these items? (y/n)
+
+If yes, I'll create .claude/parallel-plan.json to track progress.
+You can then run /cpt:continue to spawn agents.
+```
+
+**On confirmation:** Create the plan:
+```bash
+source .claude/skills/parallel-executor/plan.sh
+plan_init "Work from codebase analysis"
+plan_add_task "oauth" "Issue #42: Add OAuth support" "src/auth/"
+plan_add_task "dark-mode" "Issue #33: Add dark mode" "src/ui/theme/"
+plan_add_task "caching" "Implement caching (TODO)" "src/cache/"
+plan_add_task "test-coverage" "Issue #35: Improve test coverage" "tests/"
+```
+
+Then show: "Plan created! Run `/cpt:continue` to spawn agents or `/cpt:plan-status` to view."
+
 ## Notes
 
-- This command is READ-ONLY - it never modifies files or spawns agents
-- Use this to understand a project before running /init or /cpt:quick
+- Analysis is READ-ONLY - plan creation requires user confirmation
+- Use this to understand a project before running /cpt:quick
 - GitHub data requires the `gh` CLI to be installed and authenticated
 - If no GitHub remote, the GitHub sections are skipped
+- Plan creation adds `.claude/parallel-plan.json` (tracked in git)

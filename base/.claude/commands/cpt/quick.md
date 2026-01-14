@@ -76,16 +76,22 @@ These tasks touch different parts of the codebase and have no dependencies.
 Ready to spawn 2 parallel agents? (y/n)
 ```
 
-**On confirmation:** Execute spawn with scopes:
+**On confirmation:** Execute spawn with scopes AND create persistent plan:
 ```bash
 .claude/skills/parallel-executor/spawn.sh --scoped \
+  --goal="<user goal>" \
   "Task 1 description|src/auth/" \
   "Task 2 description|src/ui/theme/"
 ```
 
+The `--goal` flag creates a persistent plan (`.claude/parallel-plan.json`) that:
+- Tracks task status (pending → in_progress → merged)
+- Enables `/cpt:continue` on subsequent sessions
+- Persists across machines via git
+
 Or save to tasks file and run:
 ```bash
-.claude/skills/parallel-executor/spawn.sh --file tasks.md
+.claude/skills/parallel-executor/spawn.sh --file tasks.md --goal="<user goal>"
 ```
 
 ### If Single Task or Coupled Tasks:
