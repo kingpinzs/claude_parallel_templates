@@ -52,7 +52,10 @@ validate_scope_overlap() {
     local scope1="$1"
     local scope2="$2"
 
-    # Skip validation if either scope is "*" (no restriction)
+    # Both unrestricted = definite conflict
+    [[ "$scope1" == "*" && "$scope2" == "*" ]] && return 1
+
+    # One unrestricted, one restricted = user accepts potential overlap risk
     [[ "$scope1" == "*" || "$scope2" == "*" ]] && return 0
 
     # Normalize paths (remove trailing slashes)
