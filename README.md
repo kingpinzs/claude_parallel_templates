@@ -202,6 +202,25 @@ wait $(cut -d: -f1 ../.parallel-pids)
 .claude/skills/parallel-executor/merge.sh --cleanup
 ```
 
+## Updating
+
+To update an existing installation to the latest version, simply re-run the installer:
+
+```bash
+# Using uv (re-running overwrites with latest)
+uvx --from git+https://github.com/kingpinzs/claude_parallel_templates.git claude-parallel base .
+
+# Using npx
+npx github:kingpinzs/claude_parallel_templates base .
+
+# Using install script (pull latest first)
+cd /path/to/claude_parallel_templates
+git pull origin main
+./install.sh base /path/to/your/project
+```
+
+Your `.claude/.project-state` and any project-specific CLAUDE.md customizations will be preserved (CLAUDE.md is backed up to CLAUDE.md.backup before updating).
+
 ## Customization
 
 Edit `CLAUDE.md` to adjust:
