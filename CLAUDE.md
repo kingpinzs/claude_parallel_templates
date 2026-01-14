@@ -14,12 +14,12 @@ This is a template repository providing drop-in configurations for running paral
 
 **Using uv (recommended):**
 ```bash
-uvx --from git+https://github.com/jeremyking/claude-parallel-templates.git claude-parallel bmad
+uvx --from git+https://github.com/kingpinzs/claude_parallel_templates.git claude-parallel bmad
 ```
 
 **Using npx:**
 ```bash
-npx github:jeremyking/claude-parallel-templates bmad
+npx github:kingpinzs/claude_parallel_templates bmad
 ```
 
 **Using install script directly:**
