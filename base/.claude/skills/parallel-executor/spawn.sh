@@ -340,7 +340,7 @@ for task_entry in "${TASKS[@]}"; do
 
     # Generate safe name with unique suffix to prevent collisions
     base_name=$(echo "$task" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g' | cut -c1-20)
-    unique_suffix=$(head -c 2 /dev/urandom | xxd -p)
+    unique_suffix=$(head -c 4 /dev/urandom | xxd -p)
     name="${base_name}-${unique_suffix}"
     worktree="../${PROJECT}-${name}"
     branch="feature/${name}"
@@ -362,6 +362,10 @@ for task_entry in "${TASKS[@]}"; do
     # Build prompt from template with task and scope
     PROMPT=$(cat "$SCRIPT_DIR/agent-prompt.md" | sed "s|{{TASK}}|$task|g" | sed "s|{{SCOPE}}|$scope|g")
 
+    # Escape single quotes in PROMPT for safe embedding in single-quoted string
+    # Pattern: replace ' with '\'' (end quote, escaped quote, start quote)
+    ESCAPED_PROMPT="${PROMPT//\'/\'\\\'\'}"
+
     # Create a runner script for this agent (ensures proper detachment)
     runner_script="${LOGS_DIR}/${name}-runner.sh"
     cat > "$runner_script" << RUNNER_EOF
@@ -373,7 +377,7 @@ cd "$worktree"
 [[ -f "requirements.txt" ]] && pip install -q -r requirements.txt 2>/dev/null || true
 
 # Run Claude headless with structured methodology
-claude -p '$PROMPT' \\
+claude -p '$ESCAPED_PROMPT' \\
     --dangerously-skip-permissions \\
     --max-turns $MAX_TURNS \\
     > "$logfile" 2>&1

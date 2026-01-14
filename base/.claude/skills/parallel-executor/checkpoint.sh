@@ -5,11 +5,16 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="$1"
 PHASE="$2"
 MESSAGE="${3:-Checkpoint at $PHASE}"
 SESSION_DIR="../.parallel-session"
 AGENT_FILE="$SESSION_DIR/agents/${NAME}.json"
+
+# Source file locking utilities
+source "$SCRIPT_DIR/filelock.sh" 2>/dev/null || true
+USE_FLOCK=$(check_flock 2>/dev/null && echo "true" || echo "false")
 
 # Colors
 GREEN='\033[0;32m'
@@ -73,18 +78,41 @@ if command -v jq &> /dev/null; then
         *) resume="Continue from phase: $PHASE" ;;
     esac
 
-    jq --arg phase "$PHASE" \
-       --arg updated "$TIMESTAMP" \
-       --arg commit "$COMMIT" \
-       --arg resume "$resume" \
-       --argjson completed "$completed_json" \
-       '.phase.current = $phase |
-        .phase.completed = $completed |
-        .updated_at = $updated |
-        .recovery_point.phase = $phase |
-        .recovery_point.resume_prompt = $resume |
-        .recovery_point.git_ref = $commit' \
-       "$AGENT_FILE" > "$temp_file" && mv "$temp_file" "$AGENT_FILE"
+    if [[ "$USE_FLOCK" == "true" ]]; then
+        atomic_jq_update "$AGENT_FILE" \
+            --arg phase "$PHASE" \
+            --arg updated "$TIMESTAMP" \
+            --arg commit "$COMMIT" \
+            --arg resume "$resume" \
+            --argjson completed "$completed_json" \
+            '.phase.current = $phase |
+             .phase.completed = $completed |
+             .updated_at = $updated |
+             .recovery_point.phase = $phase |
+             .recovery_point.resume_prompt = $resume |
+             .recovery_point.git_ref = $commit'
+    else
+        jq --arg phase "$PHASE" \
+           --arg updated "$TIMESTAMP" \
+           --arg commit "$COMMIT" \
+           --arg resume "$resume" \
+           --argjson completed "$completed_json" \
+           '.phase.current = $phase |
+            .phase.completed = $completed |
+            .updated_at = $updated |
+            .recovery_point.phase = $phase |
+            .recovery_point.resume_prompt = $resume |
+            .recovery_point.git_ref = $commit' \
+           "$AGENT_FILE" > "$temp_file"
+
+        if jq -e . "$temp_file" > /dev/null 2>&1; then
+            mv "$temp_file" "$AGENT_FILE"
+        else
+            rm -f "$temp_file"
+            echo -e "${YELLOW}[checkpoint]${NC} JSON validation failed"
+            exit 1
+        fi
+    fi
 
     echo -e "${GREEN}[checkpoint]${NC} $NAME @ $PHASE (commit: $COMMIT)"
 else

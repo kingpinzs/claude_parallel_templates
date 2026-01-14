@@ -100,13 +100,16 @@ fi
 running=0
 completed=0
 failed=0
+exceeded=0
+skipped=0
 
-printf "%-20s %-8s %-10s %-10s %s\n" "TASK" "PID" "STATUS" "PHASE" "LAST OUTPUT"
+printf "%-20s %-8s %-12s %-10s %s\n" "TASK" "PID" "STATUS" "PHASE" "LAST OUTPUT"
 echo "─────────────────────────────────────────────────────────────────────"
 
 while IFS=: read -r pid name; do
     logfile="${LOGS_DIR}/${name}.log"
     last_line=""
+    agent_status=""
 
     # Get last meaningful line from log
     if [[ -f "$logfile" ]]; then
@@ -116,18 +119,38 @@ while IFS=: read -r pid name; do
     # Get phase
     phase=$(get_agent_phase "$name" "$logfile")
 
-    # Check if process is running
-    if kill -0 "$pid" 2>/dev/null; then
+    # Check agent state file for explicit status first
+    agent_file="$SESSION_DIR/agents/${name}.json"
+    if [[ -f "$agent_file" ]] && command -v jq &> /dev/null; then
+        agent_status=$(jq -r '.status // ""' "$agent_file" 2>/dev/null)
+    fi
+
+    # Determine status (prefer agent state file, then fallback to PID/log checks)
+    if [[ "$agent_status" == "exceeded_retries" ]]; then
+        status="${RED}EXCEEDED${NC}"
+        phase_color="${RED}$phase${NC}"
+        ((exceeded++))
+        ((failed++))
+    elif [[ "$agent_status" == "skipped" ]]; then
+        status="${CYAN}SKIPPED${NC}"
+        phase_color="${CYAN}$phase${NC}"
+        ((skipped++))
+        ((completed++))
+    elif kill -0 "$pid" 2>/dev/null; then
         status="${YELLOW}RUNNING${NC}"
         phase_color="${CYAN}$phase${NC}"
         ((running++))
-    elif grep -q "TASK_COMPLETE" "$logfile" 2>/dev/null; then
+    elif [[ "$agent_status" == "completed" ]] || grep -q "TASK_COMPLETE" "$logfile" 2>/dev/null; then
         status="${GREEN}COMPLETE${NC}"
         phase_color="${GREEN}done${NC}"
         ((completed++))
-    elif grep -qi "error\|failed\|exception" "$logfile" 2>/dev/null; then
+    elif [[ "$agent_status" == "failed" ]] || grep -qi "error\|failed\|exception" "$logfile" 2>/dev/null; then
         status="${RED}FAILED${NC}"
         phase_color="${RED}$phase${NC}"
+        ((failed++))
+    elif [[ "$agent_status" == "interrupted" ]]; then
+        status="${YELLOW}STOPPED${NC}"
+        phase_color="${YELLOW}$phase${NC}"
         ((failed++))
     else
         status="${BLUE}STOPPED${NC}"
@@ -144,7 +167,10 @@ done < "$PIDS_FILE"
 
 echo ""
 echo "─────────────────────────────────────────────────────────────"
-echo -e "Summary: ${GREEN}$completed complete${NC} | ${YELLOW}$running running${NC} | ${RED}$failed failed${NC}"
+summary="${GREEN}$completed complete${NC} | ${YELLOW}$running running${NC} | ${RED}$failed failed${NC}"
+[[ $exceeded -gt 0 ]] && summary="$summary | ${RED}$exceeded exceeded${NC}"
+[[ $skipped -gt 0 ]] && summary="$summary | ${CYAN}$skipped skipped${NC}"
+echo -e "Summary: $summary"
 echo ""
 
 if [[ $running -gt 0 ]]; then
