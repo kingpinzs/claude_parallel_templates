@@ -14,14 +14,14 @@ uv tool install claude-parallel --from git+https://github.com/kingpinzs/claude_p
 claude-parallel base or ( bmad, spec-kit, all)
 
 # Or as a one-liner without global install
-uvx --from git+https://github.com/kingpinzs/claude_parallel_templates.git claude-parallel bmad
+uvx --from git+https://github.com/kingpinzs/claude_parallel_templates.git claude-parallel base or ( bmad, spec-kit, all)
 ```
 
 ### Using npx
 
 ```bash
 # First install or update (use --no-cache to ensure latest)
-npx --no-cache github:kingpinzs/claude_parallel_templates bmad
+npx --no-cache github:kingpinzs/claude_parallel_templates base or ( bmad, spec-kit, all)
 ```
 
 ### Using the install script directly
