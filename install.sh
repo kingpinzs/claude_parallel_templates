@@ -48,19 +48,95 @@ TARGET=$(pwd)
 log "Installing to: $TARGET"
 echo ""
 
+# Detect project state
+detect_project() {
+    info "Detecting project state..."
+
+    # Check for existing CLAUDE.md
+    if [[ -f "CLAUDE.md" ]]; then
+        EXISTING_CLAUDE_MD="true"
+        warn "Found existing CLAUDE.md"
+    else
+        EXISTING_CLAUDE_MD="false"
+    fi
+
+    # Check if git repo
+    if git rev-parse --git-dir > /dev/null 2>&1; then
+        IS_GIT_REPO="true"
+        GIT_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
+        log "Git repository detected (branch: $GIT_BRANCH)"
+    else
+        IS_GIT_REPO="false"
+        warn "Not a git repository - parallel worktrees require git"
+    fi
+
+    # Check for bare repo setup
+    if [[ -d ".bare" ]] || [[ -f ".git" && $(cat .git 2>/dev/null) == gitdir:* ]]; then
+        IS_BARE_REPO="true"
+        log "Bare repo pattern detected"
+    else
+        IS_BARE_REPO="false"
+    fi
+
+    # Detect project type
+    if [[ -f "package.json" ]]; then
+        PROJECT_TYPE="nodejs"
+        log "Detected: Node.js project"
+    elif [[ -f "pyproject.toml" ]] || [[ -f "setup.py" ]] || [[ -f "requirements.txt" ]]; then
+        PROJECT_TYPE="python"
+        log "Detected: Python project"
+    elif [[ -f "go.mod" ]]; then
+        PROJECT_TYPE="go"
+        log "Detected: Go project"
+    elif [[ -f "Cargo.toml" ]]; then
+        PROJECT_TYPE="rust"
+        log "Detected: Rust project"
+    elif [[ -f "pom.xml" ]] || [[ -f "build.gradle" ]]; then
+        PROJECT_TYPE="java"
+        log "Detected: Java project"
+    else
+        PROJECT_TYPE="unknown"
+        info "Project type: unknown (will ask during init)"
+    fi
+
+    # Check if brownfield (has existing code)
+    if [[ -d "src" ]] || [[ -d "lib" ]] || [[ -d "app" ]] || find . -maxdepth 2 -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.go" -o -name "*.rs" 2>/dev/null | head -1 | grep -q .; then
+        IS_BROWNFIELD="true"
+        log "Brownfield project (existing code detected)"
+    else
+        IS_BROWNFIELD="false"
+        log "Greenfield project (no existing code detected)"
+    fi
+}
+
 # Install base (always required)
 install_base() {
     info "Installing base template..."
 
+    # Detect project state first
+    detect_project
+
     # Create directories
     mkdir -p .claude/commands/worktree
+    mkdir -p .claude/commands
     mkdir -p .claude/skills/parallel-executor
 
-    # Copy files
-    cp "$SCRIPT_DIR/base/CLAUDE.md" ./CLAUDE.md 2>/dev/null || \
+    # Handle CLAUDE.md based on existing state
+    if [[ "$EXISTING_CLAUDE_MD" == "true" ]]; then
+        # Backup existing and append parallel protocol
+        cp CLAUDE.md CLAUDE.md.backup
+        log "Backed up existing CLAUDE.md to CLAUDE.md.backup"
+        echo "" >> ./CLAUDE.md
+        echo "# Parallel Development Protocol" >> ./CLAUDE.md
+        echo "" >> ./CLAUDE.md
         cat "$SCRIPT_DIR/base/CLAUDE.md" >> ./CLAUDE.md
+    else
+        cp "$SCRIPT_DIR/base/CLAUDE.md" ./CLAUDE.md
+    fi
 
+    # Copy commands and skills
     cp -r "$SCRIPT_DIR/base/.claude/commands/worktree/"* .claude/commands/worktree/
+    cp "$SCRIPT_DIR/base/.claude/commands/init.md" .claude/commands/init.md 2>/dev/null || true
     cp -r "$SCRIPT_DIR/base/.claude/skills/parallel-executor/"* .claude/skills/parallel-executor/
     cp "$SCRIPT_DIR/base/.claude/settings.json" .claude/settings.json 2>/dev/null || true
 
@@ -68,6 +144,14 @@ install_base() {
     chmod +x .claude/skills/parallel-executor/*.sh 2>/dev/null || true
 
     log "Base template installed"
+
+    # Store detection results for later use
+    echo "EXISTING_CLAUDE_MD=$EXISTING_CLAUDE_MD" > .claude/.project-state
+    echo "IS_GIT_REPO=$IS_GIT_REPO" >> .claude/.project-state
+    echo "IS_BARE_REPO=$IS_BARE_REPO" >> .claude/.project-state
+    echo "PROJECT_TYPE=$PROJECT_TYPE" >> .claude/.project-state
+    echo "IS_BROWNFIELD=$IS_BROWNFIELD" >> .claude/.project-state
+    echo "TEMPLATE=$TEMPLATE" >> .claude/.project-state
 }
 
 # Install BMAD additions
@@ -174,28 +258,87 @@ echo "════════════════════════�
 log "Installation complete!"
 echo ""
 echo "Installed files:"
-find .claude -type f -name "*.md" -o -name "*.sh" -o -name "*.json" 2>/dev/null | head -20
+find .claude -type f \( -name "*.md" -o -name "*.sh" -o -name "*.json" \) 2>/dev/null | head -20
 echo ""
-echo "Next steps:"
-echo "  1. Review and customize CLAUDE.md"
-echo "  2. Set up bare repo pattern (recommended):"
-echo "     git clone --bare <url> .bare"
-echo "     echo 'gitdir: ./.bare' > .git"
-echo "     git worktree add main main"
-echo "  3. Start Claude: cd main && claude"
+
+# Show detection summary
+echo "Project Detection Summary:"
+echo "────────────────────────────"
+if [[ -f ".claude/.project-state" ]]; then
+    source .claude/.project-state
+    echo "  Type: $PROJECT_TYPE"
+    echo "  Git repo: $IS_GIT_REPO"
+    echo "  Bare repo: $IS_BARE_REPO"
+    echo "  Brownfield: $IS_BROWNFIELD"
+    echo "  Existing CLAUDE.md: $EXISTING_CLAUDE_MD"
+fi
+echo ""
+
+# Next steps based on template
+echo "Next Steps:"
+echo "────────────────────────────"
+
+case "$TEMPLATE" in
+    base)
+        echo "  1. Start Claude Code: claude"
+        echo "  2. Run /init to analyze your project and enter plan mode"
+        echo ""
+        echo "  The /init command will:"
+        echo "    - Analyze your codebase structure"
+        echo "    - Ask clarifying questions"
+        echo "    - Generate project-specific CLAUDE.md additions"
+        echo "    - Enter plan mode for your first task"
+        ;;
+    bmad)
+        echo "  1. Start Claude Code: claude"
+        echo "  2. Run /workflow-init to start the BMAD workflow"
+        echo "     (This will guide you through the full BMAD process)"
+        echo ""
+        echo "  Or run /init for basic parallel setup without full BMAD"
+        ;;
+    spec-kit)
+        echo "  1. Start Claude Code: claude"
+        echo "  2. Run /specify to start the Spec Kit workflow"
+        echo "     (This will create a specification for your feature)"
+        echo ""
+        echo "  Or run /init for basic parallel setup without full Spec Kit"
+        ;;
+    all)
+        echo "  1. Start Claude Code: claude"
+        echo "  2. Choose your workflow:"
+        echo "     - /init           - Basic parallel setup"
+        echo "     - /workflow-init  - BMAD Method workflow"
+        echo "     - /specify        - Spec Kit workflow"
+        ;;
+esac
+
 echo ""
 echo "Commands available:"
+echo "────────────────────────────"
+echo "  /init                            - Initialize and analyze project"
 echo "  /worktree:spawn <name> <prompt>  - Spawn parallel agent"
 echo "  /worktree:list                   - List worktrees"
 echo "  /worktree:parallel <tasks>       - Spawn multiple agents"
 echo "  /worktree:done                   - Merge and cleanup"
 
 if [[ "$TEMPLATE" == "bmad" ]] || [[ "$TEMPLATE" == "all" ]]; then
+    echo "  /workflow-init                   - Start BMAD workflow"
     echo "  /bmad:parallel-story <file>      - BMAD story parallel"
 fi
 
 if [[ "$TEMPLATE" == "spec-kit" ]] || [[ "$TEMPLATE" == "all" ]]; then
+    echo "  /specify                         - Start Spec Kit workflow"
     echo "  /spec:parallel-tasks <file>      - Spec Kit parallel"
 fi
 
 echo ""
+
+# Recommend bare repo if not already set up
+if [[ "$IS_GIT_REPO" == "true" ]] && [[ "$IS_BARE_REPO" != "true" ]]; then
+    echo "Tip: For better worktree management, consider the bare repo pattern:"
+    echo "────────────────────────────"
+    echo "  git clone --bare \$(git remote get-url origin) .bare"
+    echo "  echo 'gitdir: ./.bare' > .git"
+    echo "  git worktree add main main"
+    echo ""
+fi
