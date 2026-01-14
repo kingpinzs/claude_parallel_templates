@@ -74,6 +74,26 @@ install_base() {
 install_bmad() {
     info "Installing BMAD template..."
 
+    # Auto-install bmad-method if not already installed
+    if ! command -v bmad &> /dev/null && [[ ! -d ".bmad" ]]; then
+        info "bmad-method not found, installing via npx..."
+
+        # Install Node.js/npm if not available
+        if ! command -v npx &> /dev/null; then
+            info "npx not found, installing Node.js..."
+            curl -fsSL https://fnm.vercel.app/install | bash
+            export PATH="$HOME/.local/share/fnm:$PATH"
+            eval "$(fnm env)"
+            fnm install --lts
+            log "Node.js installed"
+        fi
+
+        npx bmad-method@alpha install
+        log "bmad-method installed"
+    else
+        log "bmad-method already installed"
+    fi
+
     mkdir -p .claude/commands/bmad
     mkdir -p .claude/skills/bmad-parallel
 
@@ -88,12 +108,30 @@ install_bmad() {
     chmod +x .claude/skills/bmad-parallel/*.sh 2>/dev/null || true
 
     log "BMAD template installed"
-    warn "For full BMAD, also install: https://github.com/aj-geddes/claude-code-bmad-skills"
 }
 
 # Install Spec Kit additions
 install_speckit() {
     info "Installing Spec Kit template..."
+
+    # Auto-install specify-cli if not available
+    if ! command -v specify &> /dev/null; then
+        info "specify-cli not found, installing via uv..."
+
+        # Install uv if not available
+        if ! command -v uv &> /dev/null; then
+            info "uv not found, installing..."
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            # Source the environment to make uv available
+            export PATH="$HOME/.local/bin:$PATH"
+            log "uv installed"
+        fi
+
+        uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
+        log "specify-cli installed"
+    else
+        log "specify-cli already installed"
+    fi
 
     mkdir -p .claude/commands/spec
     mkdir -p .claude/skills/spec-parallel
@@ -109,7 +147,6 @@ install_speckit() {
     chmod +x .claude/skills/spec-parallel/*.sh 2>/dev/null || true
 
     log "Spec Kit template installed"
-    warn "For full Spec Kit, also run: npx speckit init . --ai claude"
 }
 
 # Install based on selection
