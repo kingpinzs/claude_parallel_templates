@@ -11,7 +11,7 @@ Drop-in templates for running parallel Claude Code sessions with git worktrees.
 uv tool install claude-parallel --from git+https://github.com/jeremyking/claude-parallel-templates.git
 
 # Then in any project
-claude-parallel bmad
+claude-parallel base or ( bmad, spec-kit, all)
 
 # Or as a one-liner without global install
 uvx --from git+https://github.com/jeremyking/claude-parallel-templates.git claude-parallel bmad
