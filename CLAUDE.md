@@ -47,7 +47,7 @@ After install, Claude is automatically launched with `/cpt:init` to analyze the 
 1. Tasks marked with `[P]` are identified as parallel-eligible
 2. Each task gets its own git worktree (`git worktree add`)
 3. Headless Claude instances run in each worktree (`claude -p --dangerously-skip-permissions`)
-4. Output captured to `../logs/*.log`
+4. Output captured to `logs/*.log`
 5. Results merged back to main branch
 
 ### Task Independence Rules

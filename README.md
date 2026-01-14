@@ -20,7 +20,8 @@ uvx --from git+https://github.com/kingpinzs/claude_parallel_templates.git claude
 ### Using npx
 
 ```bash
-npx github:kingpinzs/claude_parallel_templates bmad
+# First install or update (use --no-cache to ensure latest)
+npx --no-cache github:kingpinzs/claude_parallel_templates bmad
 ```
 
 ### Using the install script directly
@@ -179,17 +180,23 @@ cd main
 /path/to/install.sh bmad .
 ```
 
-## Monitoring
+## Monitoring & Orchestration
 
 ```bash
 # Watch all agent logs
 tail -f ../logs/*.log
 
-# Check status
+# Check status (one-time)
 .claude/skills/parallel-executor/status.sh
 
-# Wait for completion
-wait $(cut -d: -f1 ../.parallel-pids)
+# Orchestrator: Monitor until all complete, then merge automatically
+.claude/skills/parallel-executor/orchestrate.sh --auto-merge
+
+# Orchestrator: Monitor only (prompt for merge when done)
+.claude/skills/parallel-executor/orchestrate.sh
+
+# Orchestrator with custom poll interval (default 30s)
+.claude/skills/parallel-executor/orchestrate.sh --poll-interval=10
 ```
 
 ## Merging
@@ -198,7 +205,7 @@ wait $(cut -d: -f1 ../.parallel-pids)
 # Merge all completed worktrees
 .claude/skills/parallel-executor/merge.sh
 
-# With cleanup
+# With cleanup (remove worktrees after merge)
 .claude/skills/parallel-executor/merge.sh --cleanup
 ```
 
@@ -210,8 +217,8 @@ To update an existing installation to the latest version, simply re-run the inst
 # Using uv (re-running overwrites with latest)
 uvx --from git+https://github.com/kingpinzs/claude_parallel_templates.git claude-parallel base .
 
-# Using npx
-npx github:kingpinzs/claude_parallel_templates base .
+# Using npx (use --no-cache to bypass npm cache)
+npx --no-cache github:kingpinzs/claude_parallel_templates base .
 
 # Using install script (pull latest first)
 cd /path/to/claude_parallel_templates
