@@ -5,6 +5,14 @@
 # Default lock timeout in seconds
 LOCK_TIMEOUT=${LOCK_TIMEOUT:-10}
 
+# Check if flock is available
+check_flock() {
+    if ! command -v flock &> /dev/null; then
+        return 1
+    fi
+    return 0
+}
+
 # Atomically update a JSON file with jq
 # Args: $1=file_path, $2...=jq arguments
 # Uses flock for exclusive access
@@ -21,9 +29,13 @@ atomic_jq_update() {
     local temp_file=$(mktemp)
     local result=0
 
-    # Use flock for exclusive access
+    # Use flock with proper file descriptor handling
+    # The exec opens FD 200 inside the subshell, then flock locks it
     (
-        # Wait for lock with timeout
+        # Open the lock file on FD 200 inside the subshell
+        exec 200>"$lock_file"
+
+        # Wait for exclusive lock with timeout
         if ! flock -w "$LOCK_TIMEOUT" 200; then
             echo "Error: Could not acquire lock for $file_path after ${LOCK_TIMEOUT}s" >&2
             rm -f "$temp_file"
@@ -35,6 +47,7 @@ atomic_jq_update() {
             # Validate JSON before replacing
             if jq -e . "$temp_file" > /dev/null 2>&1; then
                 mv "$temp_file" "$file_path"
+                exit 0
             else
                 echo "Error: jq produced invalid JSON for $file_path" >&2
                 rm -f "$temp_file"
@@ -45,11 +58,11 @@ atomic_jq_update() {
             rm -f "$temp_file"
             exit 1
         fi
-
-    ) 200>"$lock_file"
+        # Lock automatically released when FD 200 closes at subshell exit
+    )
 
     result=$?
-    rm -f "$lock_file"
+    # Don't remove lock file - let it persist for other processes
     return $result
 }
 
@@ -67,7 +80,10 @@ atomic_jq_read() {
     local lock_file="${file_path}.lock"
 
     (
-        # Shared lock for reading
+        # Open the lock file on FD 200 inside the subshell
+        exec 200>"$lock_file"
+
+        # Shared lock for reading (allows multiple readers)
         if ! flock -s -w "$LOCK_TIMEOUT" 200; then
             echo "Error: Could not acquire read lock for $file_path" >&2
             exit 1
@@ -78,11 +94,10 @@ atomic_jq_read() {
         else
             jq "$@" "$file_path"
         fi
-
-    ) 200>"$lock_file"
+        # Lock automatically released when FD 200 closes
+    )
 
     local result=$?
-    rm -f "$lock_file"
     return $result
 }
 
@@ -93,10 +108,13 @@ atomic_write() {
     local lock_file="${file_path}.lock"
     local temp_file=$(mktemp)
 
-    # Read content from stdin
+    # Read content from stdin to temp file first (outside lock)
     cat > "$temp_file"
 
     (
+        # Open the lock file on FD 200 inside the subshell
+        exec 200>"$lock_file"
+
         if ! flock -w "$LOCK_TIMEOUT" 200; then
             echo "Error: Could not acquire lock for $file_path" >&2
             rm -f "$temp_file"
@@ -104,19 +122,9 @@ atomic_write() {
         fi
 
         mv "$temp_file" "$file_path"
-
-    ) 200>"$lock_file"
+        # Lock automatically released when FD 200 closes
+    )
 
     local result=$?
-    rm -f "$lock_file"
     return $result
-}
-
-# Check if flock is available
-check_flock() {
-    if ! command -v flock &> /dev/null; then
-        echo "Warning: flock not available, file locking disabled" >&2
-        return 1
-    fi
-    return 0
 }
