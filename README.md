@@ -124,12 +124,14 @@ spec-kit/
 
 ## How It Works
 
-1. **Spec/Task Generation** - Use your preferred method to create tasks
-2. **Detection** - Claude identifies parallel-eligible tasks (`[P]` markers)
-3. **Worktree Creation** - Each task gets isolated worktree
-4. **Agent Spawn** - Headless Claude runs in each worktree
-5. **Monitoring** - Watch logs, check status
-6. **Merge** - Combine results back to main
+1. **Install** - Run the installer (Claude auto-launches with `/cpt:init`)
+2. **Analyze** - `/cpt:init` analyzes your codebase and asks clarifying questions
+3. **Plan** - Describe your goal; Claude creates task breakdown with `[P]` markers for independent tasks
+4. **Spawn** - If 2+ independent tasks exist, Claude asks to spawn parallel agents
+5. **Worktree Creation** - Each task gets isolated git worktree
+6. **Agent Execution** - Headless Claude runs in each worktree
+7. **Monitoring** - Watch logs with `tail -f ../logs/*.log`
+8. **Merge** - Combine results back to main with `/cpt:done`
 
 ## Task Format
 
@@ -204,7 +206,7 @@ wait $(cut -d: -f1 ../.parallel-pids)
 
 Edit `CLAUDE.md` to adjust:
 - Parallel triggers (keywords that activate)
-- Minimum tasks for auto-parallel (default: 3)
+- Minimum tasks for auto-parallel (default: 2)
 - Maximum parallel agents (default: 10)
 - Task detection patterns
 - Merge strategy
