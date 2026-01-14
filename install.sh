@@ -9,6 +9,7 @@ TEMPLATE="${1:-base}"
 TARGET="${2:-.}"
 
 # Colors
+RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -17,6 +18,24 @@ NC='\033[0m'
 log() { echo -e "${GREEN}[install]${NC} $1"; }
 warn() { echo -e "${YELLOW}[install]${NC} $1"; }
 info() { echo -e "${BLUE}[install]${NC} $1"; }
+error() { echo -e "${RED}[install]${NC} $1"; exit 1; }
+
+# Check for Claude CLI (required for spawning agents)
+if ! command -v claude &> /dev/null; then
+    echo ""
+    echo -e "${RED}═══════════════════════════════════════════════════════════${NC}"
+    echo -e "${RED}                   CLAUDE CLI NOT FOUND${NC}"
+    echo -e "${RED}═══════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo "Claude Code CLI is required to spawn parallel agents."
+    echo ""
+    echo "Install it from: https://docs.anthropic.com/en/docs/claude-code"
+    echo ""
+    echo "Quick install (npm):"
+    echo "  npm install -g @anthropic-ai/claude-code"
+    echo ""
+    exit 1
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"

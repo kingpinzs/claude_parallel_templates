@@ -26,6 +26,11 @@ log() { echo -e "${GREEN}[spawn]${NC} $1"; }
 warn() { echo -e "${YELLOW}[spawn]${NC} $1"; }
 error() { echo -e "${RED}[spawn]${NC} $1"; exit 1; }
 
+# Check for Claude CLI
+if ! command -v claude &> /dev/null; then
+    error "Claude Code CLI not found. Install it first: https://docs.anthropic.com/en/docs/claude-code"
+fi
+
 # Parse arguments
 TASKS=()
 POSITIONAL=()
