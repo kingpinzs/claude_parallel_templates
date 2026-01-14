@@ -12,6 +12,17 @@ This is a template repository providing drop-in configurations for running paral
 
 ## Installation
 
+**Using uv (recommended):**
+```bash
+uvx --from git+https://github.com/jeremyking/claude-parallel-templates.git claude-parallel bmad
+```
+
+**Using npx:**
+```bash
+npx github:jeremyking/claude-parallel-templates bmad
+```
+
+**Using install script directly:**
 ```bash
 ./install.sh base /path/to/project      # Base only
 ./install.sh bmad /path/to/project      # Base + BMAD

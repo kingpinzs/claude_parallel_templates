@@ -20,7 +20,7 @@ uvx --from git+https://github.com/jeremyking/claude-parallel-templates.git claud
 ### Using npx
 
 ```bash
-npx claude-parallel-templates bmad
+npx github:jeremyking/claude-parallel-templates bmad
 ```
 
 ### Using the install script directly
