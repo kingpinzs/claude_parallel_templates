@@ -11,12 +11,16 @@
       "Bash(.claude/skills/parallel-executor/*.sh*)"
     ]
   },
-  "hooks": {
+ "hooks": {
     "PostToolUse": [
       {
         "matcher": "Bash",
-        "pattern": "git worktree add",
-        "command": "echo '📁 Worktree created. Remember: npm install in new worktree before running Claude.'"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '📁 Worktree created. Remember: npm install in new worktree before running Claude.'"
+          }
+        ]
       }
     ]
   }

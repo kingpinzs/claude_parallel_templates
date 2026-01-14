@@ -1,6 +1,6 @@
 {
   "name": "claude-parallel-templates",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Drop-in templates for running parallel Claude Code sessions with git worktrees",
   "bin": {
     "claude-parallel": "./bin/cli.js"

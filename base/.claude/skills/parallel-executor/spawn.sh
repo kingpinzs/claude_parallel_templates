@@ -147,38 +147,34 @@ for task_entry in "${TASKS[@]}"; do
         warn "Worktree exists, reusing: $worktree"
     fi
 
-    # Spawn Claude in background
-    (
-        cd "$worktree"
+    # Build prompt from template with task and scope
+    PROMPT=$(cat "$SCRIPT_DIR/agent-prompt.md" | sed "s|{{TASK}}|$task|g" | sed "s|{{SCOPE}}|$scope|g")
 
-        # Install dependencies if needed
-        [[ -f "package.json" ]] && npm install --silent 2>/dev/null || true
-        [[ -f "requirements.txt" ]] && pip install -q -r requirements.txt 2>/dev/null || true
+    # Create a runner script for this agent (ensures proper detachment)
+    runner_script="${LOGS_DIR}/${name}-runner.sh"
+    cat > "$runner_script" << RUNNER_EOF
+#!/bin/bash
+cd "$worktree"
 
-        # Build prompt from template with task and scope
-        PROMPT=$(cat "$SCRIPT_DIR/agent-prompt.md" | sed "s|{{TASK}}|$task|g" | sed "s|{{SCOPE}}|$scope|g")
+# Install dependencies if needed
+[[ -f "package.json" ]] && npm install --silent 2>/dev/null || true
+[[ -f "requirements.txt" ]] && pip install -q -r requirements.txt 2>/dev/null || true
 
-        # Run Claude headless with structured methodology
-        if $RALPH_AVAILABLE; then
-            # Use ralph-loop for autonomous iteration
-            claude -p "$PROMPT
+# Run Claude headless with structured methodology
+claude -p '$PROMPT' \\
+    --dangerously-skip-permissions \\
+    --max-turns $MAX_TURNS \\
+    > "$logfile" 2>&1
 
-Use /ralph-loop to iterate until complete." \
-                --dangerously-skip-permissions \
-                --max-turns $MAX_TURNS \
-                2>&1 | tee "$logfile"
-        else
-            # Fallback: methodology embedded in prompt
-            claude -p "$PROMPT" \
-                --dangerously-skip-permissions \
-                --max-turns $MAX_TURNS \
-                2>&1 | tee "$logfile"
-        fi
+echo "TASK_COMPLETE: $name" >> "$logfile"
+RUNNER_EOF
+    chmod +x "$runner_script"
 
-        echo "TASK_COMPLETE: $name" >> "$logfile"
-    ) &
-
+    # Spawn fully detached using nohup + disown
+    nohup bash "$runner_script" > /dev/null 2>&1 &
     pid=$!
+    disown $pid
+
     echo "$pid:$name" >> "$PIDS_FILE"
     log "  Spawned: $name (PID: $pid)"
 done
