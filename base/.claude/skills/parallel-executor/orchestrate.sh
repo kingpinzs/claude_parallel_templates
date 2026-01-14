@@ -94,18 +94,29 @@ detect_agent_phase() {
     echo "$phase"
 }
 
-# Update agent phase in state file
+# Update agent phase in state file and invoke checkpoint if phase changed
 update_agent_phase() {
     local name=$1
-    local phase=$2
+    local new_phase=$2
     local agent_file="$SESSION_DIR/agents/${name}.json"
 
-    if [[ -f "$agent_file" ]] && command -v jq &> /dev/null && [[ "$phase" != "unknown" ]]; then
+    if [[ -f "$agent_file" ]] && command -v jq &> /dev/null && [[ "$new_phase" != "unknown" ]]; then
+        # Get previous phase to detect change
+        local prev_phase=$(jq -r '.phase.current // "unknown"' "$agent_file" 2>/dev/null)
+
+        # Update state file
         local temp_file=$(mktemp)
-        jq --arg phase "$phase" \
+        jq --arg phase "$new_phase" \
            --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
            '.phase.current = $phase | .updated_at = $updated | .recovery_point.phase = $phase' \
            "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+
+        # If phase changed, invoke checkpoint.sh to update recovery context
+        if [[ "$prev_phase" != "$new_phase" ]] && [[ "$prev_phase" != "unknown" ]]; then
+            log "Phase change detected for $name: $prev_phase → $new_phase"
+            # Call checkpoint.sh to update recovery_point with proper resume prompt
+            "$SCRIPT_DIR/checkpoint.sh" "$name" "$new_phase" 2>/dev/null || true
+        fi
     fi
 }
 

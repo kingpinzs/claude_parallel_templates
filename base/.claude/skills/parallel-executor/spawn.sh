@@ -46,6 +46,59 @@ log() { echo -e "${GREEN}[spawn]${NC} $1"; }
 warn() { echo -e "${YELLOW}[spawn]${NC} $1"; }
 error() { echo -e "${RED}[spawn]${NC} $1"; exit 1; }
 
+# Validate that two scopes don't overlap
+# Returns 0 if no overlap, 1 if overlap detected
+validate_scope_overlap() {
+    local scope1="$1"
+    local scope2="$2"
+
+    # Skip validation if either scope is "*" (no restriction)
+    [[ "$scope1" == "*" || "$scope2" == "*" ]] && return 0
+
+    # Normalize paths (remove trailing slashes)
+    scope1="${scope1%/}"
+    scope2="${scope2%/}"
+
+    # Check for exact match
+    [[ "$scope1" == "$scope2" ]] && return 1
+
+    # Check if one scope is a parent of another
+    [[ "$scope1" == "$scope2"/* ]] && return 1
+    [[ "$scope2" == "$scope1"/* ]] && return 1
+
+    return 0
+}
+
+# Validate all scopes in TASKS array before spawning
+# Called after TASKS array is populated but before spawning
+validate_all_scopes() {
+    local scopes=()
+    local names=()
+
+    # Extract scopes from TASKS
+    for task_entry in "${TASKS[@]}"; do
+        if [[ "$task_entry" == *"|"* ]]; then
+            local scope="${task_entry#*|}"
+            local task="${task_entry%%|*}"
+            local name=$(echo "$task" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g' | cut -c1-25)
+            scopes+=("$scope")
+            names+=("$name")
+        fi
+    done
+
+    # Check all pairs for overlap
+    local count=${#scopes[@]}
+    for ((i=0; i<count; i++)); do
+        for ((j=i+1; j<count; j++)); do
+            if ! validate_scope_overlap "${scopes[$i]}" "${scopes[$j]}"; then
+                error "Scope overlap detected: '${names[$i]}' (${scopes[$i]}) conflicts with '${names[$j]}' (${scopes[$j]}). Parallel agents cannot share scopes."
+            fi
+        done
+    done
+
+    return 0
+}
+
 # Initialize session state
 init_session() {
     local task_count=$1
@@ -78,6 +131,7 @@ create_agent_state() {
     local worktree=$4
     local branch=$5
     local pid=$6
+    local plan_task_id=${7:-""}  # Optional: ID in persistent plan
 
     cat > "$SESSION_DIR/agents/${name}.json" << EOF
 {
@@ -87,6 +141,7 @@ create_agent_state() {
   "scope": "$scope",
   "worktree": "$worktree",
   "branch": "$branch",
+  "plan_task_id": "$plan_task_id",
   "status": "running",
   "pid": $pid,
   "started_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
@@ -242,6 +297,11 @@ fi
 [[ ${#TASKS[@]} -eq 0 ]] && error "No tasks provided"
 [[ ${#TASKS[@]} -gt $MAX_PARALLEL ]] && error "Too many tasks (max $MAX_PARALLEL)"
 
+# Validate scopes don't overlap (prevents merge conflicts)
+if $SCOPED_MODE; then
+    validate_all_scopes
+fi
+
 # Create/update plan if goal is provided
 if [[ -n "$PLAN_GOAL" ]] && [[ ! -f "$PLAN_FILE" ]]; then
     log "Creating persistent plan: $PLAN_GOAL"
@@ -322,14 +382,15 @@ RUNNER_EOF
 
     echo "$pid:$name" >> "$PIDS_FILE"
 
-    # Create agent state for crash recovery
-    create_agent_state "$name" "$task" "$scope" "$worktree" "$branch" "$pid"
+    # Get plan task ID (from --from-plan mapping or generate from name)
+    plan_task_id="${TASK_TO_PLAN_ID[$task]:-$name}"
+
+    # Create agent state for crash recovery (includes plan_task_id for reliable merging)
+    create_agent_state "$name" "$task" "$scope" "$worktree" "$branch" "$pid" "$plan_task_id"
     add_agent_to_session "$name" "$task" "$scope" "$worktree" "$pid"
 
     # Update persistent plan if exists
     if [[ -f "$PLAN_FILE" ]]; then
-        # Get plan task ID (from --from-plan mapping or generate from name)
-        plan_task_id="${TASK_TO_PLAN_ID[$task]:-$name}"
 
         # Check if task exists in plan
         existing=$(jq -r --arg id "$plan_task_id" '.tasks[] | select(.id == $id) | .id' "$PLAN_FILE" 2>/dev/null)

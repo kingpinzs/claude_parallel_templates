@@ -81,8 +81,17 @@ for wt in $WORKTREES; do
 
         # Update persistent plan: mark task as merged
         if [[ -f "$PLAN_FILE" ]]; then
-            # Extract task ID from branch name (feature/task-name -> task-name)
-            task_id="${branch#feature/}"
+            task_id=""
+            # Try to get plan_task_id from agent state file (most reliable)
+            agent_name="${name#${PROJECT}-}"  # Remove project prefix
+            agent_state="$SESSION_DIR/agents/${agent_name}.json"
+            if [[ -f "$agent_state" ]] && command -v jq &> /dev/null; then
+                task_id=$(jq -r '.plan_task_id // empty' "$agent_state" 2>/dev/null)
+            fi
+            # Fall back to parsing from branch name if agent state unavailable
+            if [[ -z "$task_id" ]]; then
+                task_id="${branch#feature/}"
+            fi
             if [[ -n "$task_id" ]]; then
                 plan_set_task_status "$task_id" "merged" 2>/dev/null || true
                 log "  Plan updated: $task_id -> merged"
