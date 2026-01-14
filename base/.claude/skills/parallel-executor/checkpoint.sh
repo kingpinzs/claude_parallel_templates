@@ -8,7 +8,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="$1"
 PHASE="$2"
-MESSAGE="${3:-Checkpoint at $PHASE}"
+# Note: MESSAGE parameter is reserved for future use (e.g., custom resume prompts)
+_MESSAGE="${3:-Checkpoint at $PHASE}"
 SESSION_DIR="../.parallel-session"
 AGENT_FILE="$SESSION_DIR/agents/${NAME}.json"
 

@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT=$(basename $(pwd))
+PROJECT=$(basename "$(pwd)")
 PIDS_FILE="../.parallel-pids"
 PLAN_FILE=".claude/parallel-plan.json"
 SESSION_DIR="../.parallel-session"

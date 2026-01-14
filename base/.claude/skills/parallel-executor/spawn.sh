@@ -30,10 +30,10 @@ PLAN_GOAL=""
 # Source plan management functions
 source "$SCRIPT_DIR/plan.sh" 2>/dev/null || true
 
-# Check if ralph-wiggum plugin is available
-RALPH_AVAILABLE=false
+# Check if ralph-wiggum plugin is available (reserved for future enhanced agent prompts)
+_RALPH_AVAILABLE=false
 if claude plugin list 2>/dev/null | grep -q "ralph-wiggum"; then
-    RALPH_AVAILABLE=true
+    _RALPH_AVAILABLE=true
 fi
 
 # Colors
@@ -315,8 +315,8 @@ fi
 
 # Setup
 mkdir -p "$LOGS_DIR"
-> "$PIDS_FILE"
-> "$SCOPES_FILE"
+: > "$PIDS_FILE"
+: > "$SCOPES_FILE"
 
 # Initialize session state for crash recovery
 init_session ${#TASKS[@]}

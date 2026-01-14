@@ -12,7 +12,8 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Note: _SCRIPT_DIR reserved for future use when sourcing relative scripts
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLAN_FILE=".claude/parallel-plan.json"
 
 # Colors for output

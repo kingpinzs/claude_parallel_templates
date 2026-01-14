@@ -6,13 +6,14 @@ PIDS_FILE="../.parallel-pids"
 LOGS_DIR="../logs"
 SESSION_DIR="../.parallel-session"
 SESSION_FILE="$SESSION_DIR/session.json"
-JSON_OUTPUT=false
+# Note: JSON_OUTPUT is reserved for future structured output feature
+_JSON_OUTPUT=false
 
 # Parse arguments
 for arg in "$@"; do
     case $arg in
         --json)
-            JSON_OUTPUT=true
+            _JSON_OUTPUT=true
             ;;
     esac
 done

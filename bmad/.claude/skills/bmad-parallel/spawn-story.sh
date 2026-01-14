@@ -19,13 +19,12 @@ fi
 [[ -z "$STORY_FILE" ]] && { echo "No story file found"; exit 1; }
 [[ ! -f "$STORY_FILE" ]] && { echo "Story file not found: $STORY_FILE"; exit 1; }
 
-PROJECT=$(basename $(pwd))
+PROJECT=$(basename "$(pwd)")
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
 
 # Colors
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
 
 log() { echo -e "${GREEN}[bmad]${NC} $1"; }
@@ -57,7 +56,7 @@ TASK_COUNT=$(echo "$TASKS" | wc -l)
 log "Found $TASK_COUNT parallel tasks"
 
 mkdir -p "$LOGS_DIR"
-> "$PIDS_FILE"
+: > "$PIDS_FILE"
 
 echo ""
 log "Spawning BMAD story tasks..."

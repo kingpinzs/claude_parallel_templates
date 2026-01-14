@@ -16,7 +16,7 @@ else
     exit 1
 fi
 
-PROJECT=$(basename $(pwd))
+PROJECT=$(basename "$(pwd)")
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
 
@@ -72,7 +72,7 @@ TASK_COUNT=$(echo "$TASKS" | wc -l)
 log "Found $TASK_COUNT parallel tasks"
 
 mkdir -p "$LOGS_DIR"
-> "$PIDS_FILE"
+: > "$PIDS_FILE"
 
 echo ""
 log "Spawning Spec Kit tasks..."

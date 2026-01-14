@@ -67,8 +67,7 @@ Begin implementation.
 
 ## Files
 
-- `spawn-story.sh` - Parse story and spawn agents
-- `parse-story.sh` - Extract tasks from story markdown
+- `spawn-story.sh` - Parse story tasks and spawn agents
 
 ## Integration with Base
 

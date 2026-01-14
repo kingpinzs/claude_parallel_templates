@@ -58,7 +58,8 @@ fi
 # Read session state
 SESSION_STATUS=$(jq -r '.status' "$SESSION_FILE")
 SESSION_ID=$(jq -r '.session_id' "$SESSION_FILE")
-TOTAL_AGENTS=$(jq -r '.total_agents' "$SESSION_FILE")
+# Note: _TOTAL_AGENTS is reserved for future progress reporting
+_TOTAL_AGENTS=$(jq -r '.total_agents' "$SESSION_FILE")
 MAX_TURNS=$(jq -r '.max_turns // 100' "$SESSION_FILE")
 
 # Check if session needs resuming
@@ -199,10 +200,10 @@ if $CHECK_ONLY; then
     agents_json="["
     first=true
     for detail in "${AGENT_DETAILS[@]}"; do
-        IFS='|' read -r name task scope worktree branch phase resume reason <<< "$detail"
+        IFS='|' read -r name task scope worktree branch phase resume_prompt reason <<< "$detail"
         $first || agents_json+=","
         first=false
-        agents_json+="{\"name\":\"$name\",\"task\":\"$task\",\"phase\":\"$phase\",\"reason\":\"$reason\"}"
+        agents_json+="{\"name\":\"$name\",\"task\":\"$task\",\"phase\":\"$phase\",\"resume_prompt\":\"$resume_prompt\",\"reason\":\"$reason\"}"
     done
     agents_json+="]"
     echo "{\"resumable\": true, \"session_id\": \"$SESSION_ID\", \"agents\": $agents_json}"
@@ -220,7 +221,7 @@ log "Found ${#RESUMABLE_AGENTS[@]} agent(s) to resume"
 echo ""
 
 # Clear old PID file and rebuild
-> "$PIDS_FILE"
+: > "$PIDS_FILE"
 
 for detail in "${AGENT_DETAILS[@]}"; do
     IFS='|' read -r name task scope worktree branch phase resume_prompt reason resume_count <<< "$detail"
