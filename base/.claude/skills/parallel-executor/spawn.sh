@@ -12,7 +12,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT=$(basename $(pwd))
+PROJECT=$(basename "$(pwd)")
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
 SCOPES_FILE="../.parallel-scopes"
@@ -338,8 +338,10 @@ for task_entry in "${TASKS[@]}"; do
         scope="*"  # No restriction
     fi
 
-    # Generate safe name
-    name=$(echo "$task" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g' | cut -c1-25)
+    # Generate safe name with unique suffix to prevent collisions
+    base_name=$(echo "$task" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g' | cut -c1-20)
+    unique_suffix=$(head -c 2 /dev/urandom | xxd -p)
+    name="${base_name}-${unique_suffix}"
     worktree="../${PROJECT}-${name}"
     branch="feature/${name}"
     logfile="${LOGS_DIR}/${name}.log"

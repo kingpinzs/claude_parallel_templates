@@ -246,14 +246,27 @@ plan_add_task() {
          "merged_at": null,
          "commits": []
        }] | .updated_at = $created' \
-       "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+       "$PLAN_FILE" > "$temp_file"
+
+    if jq -e . "$temp_file" > /dev/null 2>&1; then
+        mv "$temp_file" "$PLAN_FILE"
+    else
+        echo -e "${RED}[plan]${NC} JSON validation failed when adding task" >&2
+        rm -f "$temp_file"
+        return 1
+    fi
 
     # Verify no circular dependencies were introduced
     if ! _check_circular_dependencies; then
         echo -e "${RED}[plan]${NC} Removing task '$task_id' due to circular dependency." >&2
         # Remove the task we just added
         local rollback_file=$(mktemp)
-        jq --arg id "$task_id" 'del(.tasks[] | select(.id == $id))' "$PLAN_FILE" > "$rollback_file" && mv "$rollback_file" "$PLAN_FILE"
+        jq --arg id "$task_id" 'del(.tasks[] | select(.id == $id))' "$PLAN_FILE" > "$rollback_file"
+        if jq -e . "$rollback_file" > /dev/null 2>&1; then
+            mv "$rollback_file" "$PLAN_FILE"
+        else
+            rm -f "$rollback_file"
+        fi
         return 1
     fi
 
@@ -261,7 +274,7 @@ plan_add_task() {
 }
 
 # Update task status
-# Args: $1=task_id, $2=new_status (pending|in_progress|completed|merged|failed), $3=branch (optional)
+# Args: $1=task_id, $2=new_status (pending|in_progress|completed|merged|failed|skipped), $3=branch (optional)
 plan_set_task_status() {
     _check_jq || return 1
 
@@ -293,7 +306,14 @@ plan_set_task_status() {
                  .worktree = $worktree |
                  .started_at = $started
                ) | .updated_at = $updated | .status = "in_progress"' \
-               "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+               "$PLAN_FILE" > "$temp_file"
+
+            if jq -e . "$temp_file" > /dev/null 2>&1; then
+                mv "$temp_file" "$PLAN_FILE"
+            else
+                rm -f "$temp_file"
+                return 1
+            fi
             ;;
         "merged")
             jq --arg id "$task_id" \
@@ -305,12 +325,63 @@ plan_set_task_status() {
                  .merged_at = $merged |
                  .worktree = null
                ) | .updated_at = $updated' \
-               "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+               "$PLAN_FILE" > "$temp_file"
+
+            # Validate JSON before moving
+            if jq -e . "$temp_file" > /dev/null 2>&1; then
+                mv "$temp_file" "$PLAN_FILE"
+            else
+                echo -e "${RED}[plan]${NC} JSON validation failed, aborting update" >&2
+                rm -f "$temp_file"
+                return 1
+            fi
 
             # Add to history
             _add_history_entry "$task_id" "merged"
 
-            # Check if all tasks are merged
+            # Check if all tasks are complete
+            _check_plan_completion
+            ;;
+        "failed")
+            jq --arg id "$task_id" \
+               --arg new_status "$new_status" \
+               --arg updated "$updated_at" \
+               '(.tasks[] | select(.id == $id)) |= (
+                 .status = $new_status |
+                 .failed_at = $updated
+               ) | .updated_at = $updated' \
+               "$PLAN_FILE" > "$temp_file"
+
+            if jq -e . "$temp_file" > /dev/null 2>&1; then
+                mv "$temp_file" "$PLAN_FILE"
+            else
+                rm -f "$temp_file"
+                return 1
+            fi
+
+            _add_history_entry "$task_id" "failed"
+            _check_plan_completion
+            ;;
+        "skipped")
+            # Skipped allows dependent tasks to proceed (user acknowledges risk)
+            jq --arg id "$task_id" \
+               --arg new_status "$new_status" \
+               --arg updated "$updated_at" \
+               '(.tasks[] | select(.id == $id)) |= (
+                 .status = $new_status |
+                 .skipped_at = $updated |
+                 .worktree = null
+               ) | .updated_at = $updated' \
+               "$PLAN_FILE" > "$temp_file"
+
+            if jq -e . "$temp_file" > /dev/null 2>&1; then
+                mv "$temp_file" "$PLAN_FILE"
+            else
+                rm -f "$temp_file"
+                return 1
+            fi
+
+            _add_history_entry "$task_id" "skipped"
             _check_plan_completion
             ;;
         *)
@@ -318,7 +389,14 @@ plan_set_task_status() {
                --arg new_status "$new_status" \
                --arg updated "$updated_at" \
                '(.tasks[] | select(.id == $id)).status = $new_status | .updated_at = $updated' \
-               "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+               "$PLAN_FILE" > "$temp_file"
+
+            if jq -e . "$temp_file" > /dev/null 2>&1; then
+                mv "$temp_file" "$PLAN_FILE"
+            else
+                rm -f "$temp_file"
+                return 1
+            fi
             ;;
     esac
 
@@ -350,7 +428,14 @@ plan_add_commit() {
          "message": $msg,
          "timestamp": $ts
        }]' \
-       "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+       "$PLAN_FILE" > "$temp_file"
+
+    if jq -e . "$temp_file" > /dev/null 2>&1; then
+        mv "$temp_file" "$PLAN_FILE"
+    else
+        rm -f "$temp_file"
+        return 1
+    fi
 }
 
 # Add history entry
@@ -368,21 +453,59 @@ _add_history_entry() {
          "action": $action,
          "timestamp": $ts
        }]' \
-       "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+       "$PLAN_FILE" > "$temp_file"
+
+    if jq -e . "$temp_file" > /dev/null 2>&1; then
+        mv "$temp_file" "$PLAN_FILE"
+    else
+        rm -f "$temp_file"
+    fi
 }
 
-# Check if all tasks are complete
+# Check if all tasks are complete (merged, failed, or skipped)
 _check_plan_completion() {
-    local pending=$(jq '[.tasks[] | select(.status != "merged")] | length' "$PLAN_FILE")
+    # Count tasks in each terminal and non-terminal state
+    local merged=$(jq '[.tasks[] | select(.status == "merged")] | length' "$PLAN_FILE")
+    local failed=$(jq '[.tasks[] | select(.status == "failed")] | length' "$PLAN_FILE")
+    local skipped=$(jq '[.tasks[] | select(.status == "skipped")] | length' "$PLAN_FILE")
+    local pending=$(jq '[.tasks[] | select(.status == "pending")] | length' "$PLAN_FILE")
+    local in_progress=$(jq '[.tasks[] | select(.status == "in_progress")] | length' "$PLAN_FILE")
 
-    if [[ "$pending" -eq 0 ]]; then
+    # All tasks are in terminal state (merged/failed/skipped)?
+    if [[ "$pending" -eq 0 && "$in_progress" -eq 0 ]]; then
         local temp_file=$(mktemp)
         local completed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-        jq --arg status "completed" \
+        local final_status="completed"
+
+        # Determine completion status
+        if [[ "$failed" -gt 0 && "$skipped" -gt 0 ]]; then
+            final_status="completed_with_failures_and_skips"
+        elif [[ "$failed" -gt 0 ]]; then
+            final_status="completed_with_failures"
+        elif [[ "$skipped" -gt 0 ]]; then
+            final_status="completed_with_skips"
+        fi
+
+        jq --arg status "$final_status" \
            --arg completed "$completed_at" \
-           '.status = $status | .completed_at = $completed' \
-           "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
-        echo -e "${GREEN}[plan]${NC} All tasks merged! Plan completed."
+           --argjson merged "$merged" \
+           --argjson failed "$failed" \
+           --argjson skipped "$skipped" \
+           '.status = $status | .completed_at = $completed | .completion_stats = {merged: $merged, failed: $failed, skipped: $skipped}' \
+           "$PLAN_FILE" > "$temp_file"
+
+        if jq -e . "$temp_file" > /dev/null 2>&1; then
+            mv "$temp_file" "$PLAN_FILE"
+        else
+            rm -f "$temp_file"
+            return 1
+        fi
+
+        if [[ "$failed" -gt 0 || "$skipped" -gt 0 ]]; then
+            echo -e "${YELLOW}[plan]${NC} Plan completed: $merged merged, $failed failed, $skipped skipped"
+        else
+            echo -e "${GREEN}[plan]${NC} All tasks merged! Plan completed."
+        fi
     fi
 }
 
@@ -415,14 +538,14 @@ plan_get_ready_tasks() {
         return 1
     fi
 
-    # Get merged task IDs
-    local merged_ids=$(jq -r '[.tasks[] | select(.status == "merged") | .id]' "$PLAN_FILE")
+    # Get satisfied dependency IDs (merged or skipped - both allow dependents to proceed)
+    local satisfied_ids=$(jq -r '[.tasks[] | select(.status == "merged" or .status == "skipped") | .id]' "$PLAN_FILE")
 
-    # Get pending tasks where all dependencies are merged
-    local ready_tasks=$(jq --argjson merged "$merged_ids" \
+    # Get pending tasks where all dependencies are satisfied (merged or skipped)
+    local ready_tasks=$(jq --argjson satisfied "$satisfied_ids" \
        '[.tasks[] | select(
          .status == "pending" and
-         ((.depends_on | length) == 0 or (.depends_on | all(. as $dep | $merged | index($dep))))
+         ((.depends_on | length) == 0 or (.depends_on | all(. as $dep | $satisfied | index($dep))))
        )]' "$PLAN_FILE")
 
     # Warn if there are pending tasks but none are ready (possible unresolvable deps)
@@ -431,8 +554,17 @@ plan_get_ready_tasks() {
     local in_progress_count=$(jq '[.tasks[] | select(.status == "in_progress")] | length' "$PLAN_FILE")
 
     if [[ "$pending_count" -gt 0 && "$ready_count" -eq 0 && "$in_progress_count" -eq 0 ]]; then
+        local failed_count=$(jq '[.tasks[] | select(.status == "failed")] | length' "$PLAN_FILE")
         echo -e "${YELLOW}[plan]${NC} WARNING: $pending_count pending task(s) but none ready to start." >&2
-        echo -e "${YELLOW}[plan]${NC} Tasks may have unresolvable dependencies (missing dependency tasks)." >&2
+
+        if [[ "$failed_count" -gt 0 ]]; then
+            echo -e "${YELLOW}[plan]${NC} $failed_count task(s) have FAILED - dependent tasks are blocked." >&2
+            echo -e "${YELLOW}[plan]${NC} Options: retry failed tasks, or use 'plan_set_task_status <id> skipped' to bypass." >&2
+            jq -r '.tasks[] | select(.status == "failed") | "  FAILED: \(.id)"' "$PLAN_FILE" >&2
+        else
+            echo -e "${YELLOW}[plan]${NC} Tasks may have unresolvable dependencies (missing dependency tasks)." >&2
+        fi
+
         # List the blocked tasks
         jq -r '.tasks[] | select(.status == "pending") | "  - \(.id) depends on: \(.depends_on | join(", "))"' "$PLAN_FILE" >&2
     fi
@@ -495,6 +627,7 @@ plan_status() {
     local in_progress=$(jq '[.tasks[] | select(.status == "in_progress")] | length' "$PLAN_FILE")
     local merged=$(jq '[.tasks[] | select(.status == "merged")] | length' "$PLAN_FILE")
     local failed=$(jq '[.tasks[] | select(.status == "failed")] | length' "$PLAN_FILE")
+    local skipped=$(jq '[.tasks[] | select(.status == "skipped")] | length' "$PLAN_FILE")
 
     echo ""
     echo "═══════════════════════════════════════════════════════════"
@@ -513,19 +646,24 @@ plan_status() {
     jq -r '.tasks[] | "\(.id)|\(.status)|\(.branch // "-")|\(.depends_on | join(","))"' "$PLAN_FILE" | \
     while IFS='|' read -r id task_status branch deps; do
         case $task_status in
-            "pending")   status_color="${YELLOW}pending${NC}" ;;
+            "pending")     status_color="${YELLOW}pending${NC}" ;;
             "in_progress") status_color="${BLUE}active${NC}" ;;
-            "merged")    status_color="${GREEN}merged${NC}" ;;
-            "failed")    status_color="${RED}failed${NC}" ;;
-            *)           status_color="$task_status" ;;
+            "merged")      status_color="${GREEN}merged${NC}" ;;
+            "failed")      status_color="${RED}failed${NC}" ;;
+            "skipped")     status_color="${CYAN}skipped${NC}" ;;
+            *)             status_color="$task_status" ;;
         esac
         printf "%-25s %-20b %-15s %s\n" "$id" "$status_color" "$branch" "${deps:-none}"
     done
 
     echo ""
     echo "─────────────────────────────────────────────────────────────"
-    echo -e "Summary: ${GREEN}$merged merged${NC} | ${BLUE}$in_progress active${NC} | ${YELLOW}$pending pending${NC} | ${RED}$failed failed${NC}"
-    echo -e "Progress: $merged / $total tasks complete"
+    local summary="${GREEN}$merged merged${NC} | ${BLUE}$in_progress active${NC} | ${YELLOW}$pending pending${NC}"
+    [[ "$failed" -gt 0 ]] && summary="$summary | ${RED}$failed failed${NC}"
+    [[ "$skipped" -gt 0 ]] && summary="$summary | ${CYAN}$skipped skipped${NC}"
+    echo -e "Summary: $summary"
+    local done_count=$((merged + skipped))
+    echo -e "Progress: $done_count / $total tasks complete ($merged merged, $skipped skipped)"
     echo ""
 
     if [[ $pending -gt 0 ]]; then
