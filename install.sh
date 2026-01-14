@@ -333,6 +333,10 @@ fi
 
 # Auto-launch Claude with /cpt:init
 echo ""
-log "Launching Claude Code..."
+log "Installation complete!"
 echo ""
-exec claude -p "/cpt:init"
+echo "To start, run:"
+echo "  claude"
+echo ""
+echo "Then use /cpt:init to initialize parallel development."
+echo ""
