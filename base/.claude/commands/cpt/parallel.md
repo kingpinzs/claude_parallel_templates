@@ -8,6 +8,8 @@ arguments:
 
 Create multiple worktrees and spawn parallel Claude sessions for each task.
 
+**After spawning, the orchestrator automatically starts and monitors all agents until completion, then auto-merges results.**
+
 ## Input Parsing
 
 **Option 1: Comma-separated tasks**
@@ -28,75 +30,65 @@ Tasks file format:
 - [ ] Integration tests [depends: 1,2,3]
 ```
 
-## Execution Steps
+## Execution
 
-1. **Parse input** into task list
-2. **Filter** for parallel-eligible tasks (marked [P] or no dependencies)
-3. **Validate** count (max 10 parallel)
-4. **Create logs directory:**
-   ```bash
-   mkdir -p ../logs
-   ```
-
-5. **For each parallel task:**
-   ```bash
-   # Generate safe name from task description
-   NAME=$(echo "$TASK" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | cut -c1-25)
-   PROJECT=$(basename $(pwd))
-
-   # Create worktree
-   git worktree add "../${PROJECT}-${NAME}" -b "feature/${NAME}" main
-
-   # Spawn agent
-   (
-     cd "../${PROJECT}-${NAME}"
-     npm install 2>/dev/null || yarn 2>/dev/null || true
-     claude -p "Implement: $TASK
-
-Follow project conventions in CLAUDE.md.
-Commit when complete with descriptive message." \
-       --dangerously-skip-permissions \
-       > "../logs/${NAME}.log" 2>&1
-   ) &
-
-   echo "$!" >> "../.parallel-pids"
-   echo "Spawned: $NAME (PID: $!)"
-   ```
-
-6. **Output monitoring script:**
-   ```bash
-   echo "
-   # Monitor all agents
-   tail -f ../logs/*.log
-
-   # Check which are still running
-   for pid in \$(cat ../.parallel-pids); do
-     kill -0 \$pid 2>/dev/null && echo \"\$pid: RUNNING\" || echo \"\$pid: DONE\"
-   done
-
-   # Wait for all to complete
-   wait \$(cat ../.parallel-pids)
-   echo 'All agents complete'
-   "
-   ```
-
-## Output Summary
-
-| Task | Worktree | Branch | PID | Log |
-|------|----------|--------|-----|-----|
-| Add auth | ../proj-add-auth | feature/add-auth | 12345 | ../logs/add-auth.log |
-| Create API | ../proj-create-api | feature/create-api | 12346 | ../logs/create-api.log |
-
-## After Completion
-
-Run `/cpt:list` to see status, then `/cpt:done <name>` for each, or:
+Run the spawn script which handles everything automatically:
 
 ```bash
-# Merge all completed worktrees
-for wt in ../$(basename $(pwd))-*; do
-  cd ../main && git merge $(git -C "$wt" branch --show-current) --no-edit
-  git worktree remove "$wt"
-done
+.claude/skills/parallel-executor/spawn.sh "task1" "task2" "task3"
+```
+
+Or with a tasks file:
+```bash
+.claude/skills/parallel-executor/spawn.sh --file tasks.md
+```
+
+## What Happens Automatically
+
+1. **Worktrees created** - One git worktree per task
+2. **Agents spawned** - Headless Claude runs in each worktree
+3. **Orchestrator starts** - Monitors all agents in real-time
+4. **Progress shown** - `[14:32:15] 2/5 complete 3 running`
+5. **Auto-merge** - When all complete, merges to main and cleans up
+
+## Output During Execution
+
+```
+═══════════════════════════════════════════════════════════
+               PARALLEL AGENT ORCHESTRATOR
+═══════════════════════════════════════════════════════════
+
+[spawn] Monitoring 3 parallel agents...
+
+[14:32:15] 1/3 complete 2 running
+[14:33:45] 2/3 complete 1 running
+[14:35:00] 3/3 complete 0 running
+
+═══════════════════════════════════════════════════════════
+[orchestrate] All agents finished in 5m 23s
+
+✓ All 3 agents completed successfully!
+
+Completed worktrees:
+  ✓ add-auth
+  ✓ create-api
+  ✓ build-ui
+
+[orchestrate] Auto-merge enabled. Starting merge...
+...
+[merge] All merges complete!
+[merge] Cleanup complete
+```
+
+## Manual Control (Optional)
+
+If you don't want auto-orchestration:
+```bash
+# Spawn without orchestrator
+.claude/skills/parallel-executor/spawn.sh --no-orchestrate "task1" "task2"
+
+# Spawn with orchestrator but no auto-merge
+.claude/skills/parallel-executor/spawn.sh --no-auto-merge "task1" "task2"
 ```
 
 ## Limits

@@ -2,13 +2,19 @@
 # Parallel Claude Code Spawner
 # Usage: spawn.sh "task1" "task2" "task3"
 # Or:    spawn.sh --file tasks.md
+# Options:
+#   --no-orchestrate    Don't auto-start orchestrator
+#   --no-auto-merge     Start orchestrator but don't auto-merge
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT=$(basename $(pwd))
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
 MAX_PARALLEL=10
+AUTO_ORCHESTRATE=true
+AUTO_MERGE=true
 
 # Colors
 RED='\033[0;31m'
@@ -22,19 +28,38 @@ error() { echo -e "${RED}[spawn]${NC} $1"; exit 1; }
 
 # Parse arguments
 TASKS=()
-if [[ "$1" == "--file" ]]; then
-    [[ -f "$2" ]] || error "File not found: $2"
-    # Extract tasks marked with [P] or (P)
-    while IFS= read -r line; do
-        if [[ "$line" =~ \[P\]|\(P\) ]]; then
-            # Clean up the task description
-            task=$(echo "$line" | sed 's/^[^a-zA-Z]*//' | sed 's/\[P\]//' | sed 's/(P)//' | xargs)
-            [[ -n "$task" ]] && TASKS+=("$task")
-        fi
-    done < "$2"
-else
-    TASKS=("$@")
-fi
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-orchestrate)
+            AUTO_ORCHESTRATE=false
+            shift
+            ;;
+        --no-auto-merge)
+            AUTO_MERGE=false
+            shift
+            ;;
+        --file)
+            [[ -f "$2" ]] || error "File not found: $2"
+            # Extract tasks marked with [P] or (P)
+            while IFS= read -r line; do
+                if [[ "$line" =~ \[P\]|\(P\) ]]; then
+                    # Clean up the task description
+                    task=$(echo "$line" | sed 's/^[^a-zA-Z]*//' | sed 's/\[P\]//' | sed 's/(P)//' | xargs)
+                    [[ -n "$task" ]] && TASKS+=("$task")
+                fi
+            done < "$2"
+            shift 2
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Add positional args as tasks
+TASKS+=("${POSITIONAL[@]}")
 
 # Validate
 [[ ${#TASKS[@]} -eq 0 ]] && error "No tasks provided"
@@ -92,12 +117,28 @@ Begin implementation." \
 done
 
 echo ""
-log "All agents spawned!"
+log "All ${#TASKS[@]} agents spawned!"
 echo ""
-echo "Monitor commands:"
-echo "  tail -f $LOGS_DIR/*.log              # Watch all logs"
-echo "  $(dirname $0)/status.sh              # Check completion"
-echo "  wait \$(cut -d: -f1 $PIDS_FILE)       # Wait for all"
-echo ""
-echo "When complete:"
-echo "  $(dirname $0)/merge.sh               # Merge all to main"
+
+# Auto-start orchestrator
+if $AUTO_ORCHESTRATE; then
+    echo "═══════════════════════════════════════════════════════════"
+    log "Starting orchestrator (auto-merge: $AUTO_MERGE)..."
+    echo ""
+
+    if $AUTO_MERGE; then
+        # Run orchestrator with auto-merge
+        exec "$SCRIPT_DIR/orchestrate.sh" --auto-merge
+    else
+        # Run orchestrator without auto-merge
+        exec "$SCRIPT_DIR/orchestrate.sh"
+    fi
+else
+    echo "Monitor commands:"
+    echo "  tail -f $LOGS_DIR/*.log              # Watch all logs"
+    echo "  $SCRIPT_DIR/status.sh                # Check completion"
+    echo "  $SCRIPT_DIR/orchestrate.sh           # Start orchestrator"
+    echo ""
+    echo "When complete:"
+    echo "  $SCRIPT_DIR/merge.sh                 # Merge all to main"
+fi
