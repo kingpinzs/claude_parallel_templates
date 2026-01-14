@@ -28,11 +28,14 @@ claude
 ```
 .claude/
 ├── commands/
-│   └── worktree/
-│       ├── spawn.md      # /worktree:spawn <name> <prompt>
-│       ├── list.md       # /worktree:list
-│       ├── done.md       # /worktree:done
-│       └── parallel.md   # /worktree:parallel <tasks>
+│   └── cpt/
+│       ├── init.md       # /cpt:init - Initialize project
+│       ├── analyze.md    # /cpt:analyze - Read-only analysis
+│       ├── quick.md      # /cpt:quick - Fast goal breakdown
+│       ├── spawn.md      # /cpt:spawn <name> <prompt>
+│       ├── parallel.md   # /cpt:parallel <tasks>
+│       ├── list.md       # /cpt:list
+│       └── done.md       # /cpt:done
 ├── skills/
 │   └── parallel-executor/
 │       ├── SKILL.md      # Auto-activates on parallel triggers
@@ -46,9 +49,11 @@ CLAUDE.md                 # Parallel execution protocol
 
 ### Manual Commands
 ```
-/worktree:spawn auth-feature "Implement user authentication"
-/worktree:list
-/worktree:done
+/cpt:init                                    # Initialize and analyze project
+/cpt:spawn auth-feature "Implement auth"     # Spawn single agent
+/cpt:parallel "task1, task2, task3"          # Spawn multiple agents
+/cpt:list                                    # List worktrees
+/cpt:done                                    # Merge and cleanup
 ```
 
 ### Automatic (via CLAUDE.md)

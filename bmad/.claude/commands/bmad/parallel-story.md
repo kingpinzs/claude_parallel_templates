@@ -70,4 +70,4 @@ Status:  .claude/skills/parallel-executor/status.sh
 
 After parallel tasks complete:
 1. Run `/bmad:parallel-story --continue` to execute sequential tasks
-2. Or manually run `/worktree:done` for each
+2. Or manually run `/cpt:done` for each
