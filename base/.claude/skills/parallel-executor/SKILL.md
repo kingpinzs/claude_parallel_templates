@@ -7,6 +7,10 @@ triggers:
   - "run in parallel"
   - "fork this"
   - "multiple tasks"
+  - "work on issue #"
+  - "fix the bugs"
+  - "address the open issues"
+  - "work on these issues"
   - tasks with "[P]" markers detected
 ---
 
@@ -14,12 +18,32 @@ triggers:
 
 I automatically orchestrate parallel Claude Code sessions when tasks can be executed concurrently.
 
+## Key Principle
+
+**Only spawn agents when there are truly independent tasks.** Single tasks or tightly coupled work stay in the current session. Spawning is not the default - it's an optimization for genuinely parallel work.
+
 ## When I Activate
 
 - User explicitly requests parallel execution
-- Task breakdown contains 3+ independent items
+- Task breakdown contains 2+ truly independent items
 - File contains `[P]` or `(P)` parallel markers
-- Feature spans multiple unrelated components
+- Multiple unrelated GitHub issues are being addressed
+
+## Independence Criteria
+
+**Tasks are INDEPENDENT (can spawn) if:**
+- They touch completely different files/directories
+- No shared state or dependencies between tasks
+- Tasks can be tested in isolation
+- Merging results won't cause conflicts
+- Examples: OAuth auth + dark mode theme, API endpoints + CLI tool
+
+**Tasks are COUPLED (stay in session) if:**
+- They modify the same files
+- One depends on the other's output
+- They share state (database schema, config, API contracts)
+- They're steps of the same feature
+- Examples: Adding a feature + its tests, UI component + its state
 
 ## My Process
 
@@ -29,6 +53,8 @@ I examine the work to identify:
 - Independent tasks (can run in parallel)
 - Dependent tasks (must wait for others)
 - Shared resources (require coordination)
+
+**Important:** I always ask for confirmation before spawning agents.
 
 ### 2. Dependency Graph
 
