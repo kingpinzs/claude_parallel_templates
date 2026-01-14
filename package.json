@@ -1,0 +1,30 @@
+{
+  "name": "claude-parallel-templates",
+  "version": "0.1.0",
+  "description": "Drop-in templates for running parallel Claude Code sessions with git worktrees",
+  "bin": {
+    "claude-parallel": "./bin/cli.js"
+  },
+  "files": [
+    "bin/",
+    "base/",
+    "bmad/",
+    "spec-kit/",
+    "install.sh"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "parallel",
+    "worktree",
+    "ai",
+    "bmad",
+    "spec-kit"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeremyking/claude-parallel-templates.git"
+  }
+}
