@@ -61,17 +61,32 @@ Analysis: Found 2 independent tasks that can run in parallel.
 
 Tasks:
   1. [ ] <Task 1 description> [P]
-     → Affects: src/auth/
+     → scope: src/auth/
 
   2. [ ] <Task 2 description> [P]
-     → Affects: src/ui/theme/
+     → scope: src/ui/theme/
+
+File Scope Enforcement: STRICT
+  - Task 1 can ONLY modify files in src/auth/
+  - Task 2 can ONLY modify files in src/ui/theme/
+  - Shared files (package.json, etc.) are FORBIDDEN
 
 These tasks touch different parts of the codebase and have no dependencies.
 
 Ready to spawn 2 parallel agents? (y/n)
 ```
 
-**On confirmation:** Execute spawn using `/cpt:parallel`
+**On confirmation:** Execute spawn with scopes:
+```bash
+.claude/skills/parallel-executor/spawn.sh --scoped \
+  "Task 1 description|src/auth/" \
+  "Task 2 description|src/ui/theme/"
+```
+
+Or save to tasks file and run:
+```bash
+.claude/skills/parallel-executor/spawn.sh --file tasks.md
+```
 
 ### If Single Task or Coupled Tasks:
 
@@ -108,7 +123,11 @@ Analysis:
 - Dark mode → src/ui/theme/ (UI styling)
 - No overlap, independent features
 
-Result: Offer to spawn 2 agents
+File Scopes:
+- Agent 1: ONLY src/auth/**
+- Agent 2: ONLY src/ui/theme/**
+
+Result: Offer to spawn 2 agents with strict file boundaries
 ```
 
 ### Example 2: Not Parallelizable
@@ -134,6 +153,11 @@ Analysis:
 - API → src/api/ [P]
 - Integration tests → depends on auth AND api
 
+File Scopes:
+- Agent 1: ONLY src/auth/**
+- Agent 2: ONLY src/api/**
+- Integration tests: run AFTER merge (no parallel agent)
+
 Result: Offer to spawn 2 agents for auth + API
         Queue integration tests for after completion
 ```
@@ -145,3 +169,6 @@ Result: Offer to spawn 2 agents for auth + API
 3. **Maximum 10 agents** - if more tasks, batch them
 4. **Default to staying in session** when unsure about independence
 5. **Check GitHub issues** if goal references issue numbers
+6. **ALWAYS define file scopes** - every parallel task MUST have a scope boundary
+7. **Scopes must not overlap** - if directories overlap, tasks are NOT independent
+8. **Shared files are forbidden** - package.json, tsconfig.json, etc. cannot be modified by parallel agents

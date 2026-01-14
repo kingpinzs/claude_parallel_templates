@@ -2,10 +2,12 @@
 # Parallel Claude Code Spawner
 # Usage: spawn.sh "task1" "task2" "task3"
 # Or:    spawn.sh --file tasks.md
+# Or:    spawn.sh --scoped "task1|scope1" "task2|scope2"
 # Options:
 #   --no-orchestrate    Don't auto-start orchestrator
 #   --no-auto-merge     Start orchestrator but don't auto-merge
 #   --max-turns=N       Max turns per agent (default: 100)
+#   --scoped            Tasks include scope (format: "task|scope")
 
 set -e
 
@@ -13,10 +15,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT=$(basename $(pwd))
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
+SCOPES_FILE="../.parallel-scopes"
 MAX_PARALLEL=10
 MAX_TURNS=100
 AUTO_ORCHESTRATE=true
 AUTO_MERGE=true
+SCOPED_MODE=false
 
 # Check if ralph-wiggum plugin is available
 RALPH_AVAILABLE=false
@@ -56,14 +60,34 @@ while [[ $# -gt 0 ]]; do
             MAX_TURNS="${1#*=}"
             shift
             ;;
+        --scoped)
+            SCOPED_MODE=true
+            shift
+            ;;
         --file)
             [[ -f "$2" ]] || error "File not found: $2"
             # Extract tasks marked with [P] or (P)
+            # Format: "- [ ] Task description [P] → scope: src/dir/"
             while IFS= read -r line; do
                 if [[ "$line" =~ \[P\]|\(P\) ]]; then
-                    # Clean up the task description
-                    task=$(echo "$line" | sed 's/^[^a-zA-Z]*//' | sed 's/\[P\]//' | sed 's/(P)//' | xargs)
-                    [[ -n "$task" ]] && TASKS+=("$task")
+                    # Extract scope if present (after "→ scope:" or "scope:")
+                    scope=""
+                    if [[ "$line" =~ →[[:space:]]*scope:[[:space:]]*([^[:space:]]+) ]]; then
+                        scope="${BASH_REMATCH[1]}"
+                        SCOPED_MODE=true
+                    elif [[ "$line" =~ scope:[[:space:]]*([^[:space:]]+) ]]; then
+                        scope="${BASH_REMATCH[1]}"
+                        SCOPED_MODE=true
+                    fi
+                    # Clean up the task description (remove [P], scope info)
+                    task=$(echo "$line" | sed 's/^[^a-zA-Z]*//' | sed 's/\[P\]//' | sed 's/(P)//' | sed 's/→.*$//' | sed 's/scope:[^[:space:]]*//' | xargs)
+                    if [[ -n "$task" ]]; then
+                        if [[ -n "$scope" ]]; then
+                            TASKS+=("$task|$scope")
+                        else
+                            TASKS+=("$task")
+                        fi
+                    fi
                 fi
             done < "$2"
             shift 2
@@ -85,12 +109,25 @@ TASKS+=("${POSITIONAL[@]}")
 # Setup
 mkdir -p "$LOGS_DIR"
 > "$PIDS_FILE"
+> "$SCOPES_FILE"
 
 log "Spawning ${#TASKS[@]} parallel agents..."
+if $SCOPED_MODE; then
+    log "File scope enforcement: ENABLED"
+fi
 echo ""
 
 # Spawn each task
-for task in "${TASKS[@]}"; do
+for task_entry in "${TASKS[@]}"; do
+    # Parse task and scope (format: "task|scope" or just "task")
+    if [[ "$task_entry" == *"|"* ]]; then
+        task="${task_entry%%|*}"
+        scope="${task_entry#*|}"
+    else
+        task="$task_entry"
+        scope="*"  # No restriction
+    fi
+
     # Generate safe name
     name=$(echo "$task" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g' | cut -c1-25)
     worktree="../${PROJECT}-${name}"
@@ -98,6 +135,12 @@ for task in "${TASKS[@]}"; do
     logfile="${LOGS_DIR}/${name}.log"
 
     log "Creating worktree: $worktree"
+    if [[ "$scope" != "*" ]]; then
+        log "  Scope: $scope"
+    fi
+
+    # Record scope for conflict detection
+    echo "$name:$scope" >> "$SCOPES_FILE"
 
     # Create worktree
     if ! git worktree add "$worktree" -b "$branch" main 2>/dev/null; then
@@ -112,8 +155,8 @@ for task in "${TASKS[@]}"; do
         [[ -f "package.json" ]] && npm install --silent 2>/dev/null || true
         [[ -f "requirements.txt" ]] && pip install -q -r requirements.txt 2>/dev/null || true
 
-        # Build prompt from template
-        PROMPT=$(cat "$SCRIPT_DIR/agent-prompt.md" | sed "s/{{TASK}}/$task/g")
+        # Build prompt from template with task and scope
+        PROMPT=$(cat "$SCRIPT_DIR/agent-prompt.md" | sed "s|{{TASK}}|$task|g" | sed "s|{{SCOPE}}|$scope|g")
 
         # Run Claude headless with structured methodology
         if $RALPH_AVAILABLE; then

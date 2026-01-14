@@ -77,14 +77,47 @@ Create or update CLAUDE.md with:
 4. **Parallel development protocol** (from base template)
 5. **Project-specific task patterns** (what makes sense to parallelize)
 
-## Step 4: Enter Plan Mode
+## Step 4: Scope Mapping
+
+Create a scope map for parallel task assignment:
+
+1. **Identify independent modules:**
+   - Map each source directory to its purpose
+   - Note dependencies between modules
+   - Identify shared files that should NEVER be modified by parallel agents
+
+2. **Define scope boundaries:**
+   ```
+   Scope Map:
+   ────────────────────
+   src/auth/        → Authentication logic
+   src/api/         → API endpoints
+   src/ui/          → Frontend components
+   src/db/          → Database layer
+   tests/           → Test files (scope by feature)
+
+   FORBIDDEN (shared files):
+   - package.json, package-lock.json
+   - tsconfig.json, .eslintrc
+   - Any root config files
+   - Database migrations (serialize these)
+   ```
+
+3. **Scope validation rules:**
+   - Each parallel task MUST have an assigned scope
+   - Scopes MUST NOT overlap between parallel agents
+   - If a task requires multiple scopes, it should NOT be parallelized
+   - Shared config changes must be queued for post-merge
+
+## Step 5: Enter Plan Mode
 
 After initialization, automatically enter plan mode to:
 
 1. Present a summary of the project analysis
-2. Identify potential areas for parallel development
-3. Suggest an initial task breakdown if the user has a goal in mind
-4. Wait for user approval before any implementation
+2. Show the scope map for parallel development
+3. Identify potential areas for parallel development
+4. Suggest an initial task breakdown if the user has a goal in mind
+5. Wait for user approval before any implementation
 
 ## Output Format
 
@@ -120,6 +153,17 @@ Main directories:
   - src/: [description]
   - tests/: [description]
   ...
+
+🎯 Scope Map (for parallel agents)
+────────────────────
+Available scopes:
+  - src/auth/**     → Authentication
+  - src/api/**      → API endpoints
+  - src/ui/**       → UI components
+  ...
+
+Forbidden files (no parallel modification):
+  - package.json, tsconfig.json, etc.
 
 ❓ Questions
 ────────────────────

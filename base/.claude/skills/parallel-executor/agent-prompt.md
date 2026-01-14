@@ -1,5 +1,26 @@
 # Task: {{TASK}}
 
+## CRITICAL: File Scope Restriction
+
+**You are ONLY allowed to modify files in this scope:**
+```
+{{SCOPE}}
+```
+
+**FORBIDDEN - DO NOT TOUCH:**
+- Files outside your assigned scope
+- Shared configuration files (package.json, tsconfig.json, etc.) unless explicitly in scope
+- Any file another parallel agent might be modifying
+
+If you need to modify a file outside your scope:
+1. STOP - do not make the change
+2. Document the needed change in your commit message
+3. Mark it as a post-merge TODO
+
+This prevents merge conflicts with other parallel agents.
+
+---
+
 You are an autonomous agent. Follow this methodology strictly:
 
 ## Phase 1: RALPH Loop (DO NOT SKIP)

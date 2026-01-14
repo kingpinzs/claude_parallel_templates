@@ -12,7 +12,7 @@ const target = args[1] || '.';
 const packageDir = path.resolve(__dirname, '..');
 const installScript = path.join(packageDir, 'install.sh');
 
-console.log(`claude-parallel-templates v0.2.2`);
+console.log(`claude-parallel-templates v0.2.3`);
 console.log(`Template: ${template}`);
 console.log(`Target: ${path.resolve(target)}`);
 console.log(`Install script: ${installScript}`);
