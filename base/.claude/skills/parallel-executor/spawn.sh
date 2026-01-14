@@ -150,6 +150,8 @@ create_agent_state() {
   "started_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "updated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "completed_at": null,
+  "resume_count": 0,
+  "max_resume_attempts": 3,
   "phase": {
     "current": "requirements",
     "completed": []

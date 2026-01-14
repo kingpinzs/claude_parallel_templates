@@ -31,6 +31,107 @@ _check_jq() {
     fi
 }
 
+# Check for circular dependencies using depth-first search
+# Args: $1=task_id to check, $2=path (space-separated visited nodes)
+# Returns: 0 if no cycle, 1 if cycle detected
+_has_cycle_from() {
+    local task_id="$1"
+    local path="$2"
+
+    # Check if task_id is already in path (cycle detected)
+    for node in $path; do
+        if [[ "$node" == "$task_id" ]]; then
+            return 1  # Cycle found
+        fi
+    done
+
+    # Get dependencies for this task
+    local deps=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .depends_on[]? // empty' "$PLAN_FILE" 2>/dev/null)
+
+    # Recurse into dependencies
+    for dep in $deps; do
+        if ! _has_cycle_from "$dep" "$path $task_id"; then
+            return 1  # Cycle found in subtree
+        fi
+    done
+
+    return 0  # No cycle
+}
+
+# Check all tasks for circular dependencies
+# Returns: 0 if no cycles, 1 if cycles detected (with error message)
+_check_circular_dependencies() {
+    _check_jq || return 1
+
+    if [[ ! -f "$PLAN_FILE" ]]; then
+        return 0  # No plan, no cycles
+    fi
+
+    # Get all task IDs
+    local task_ids=$(jq -r '.tasks[].id' "$PLAN_FILE" 2>/dev/null)
+
+    for task_id in $task_ids; do
+        if ! _has_cycle_from "$task_id" ""; then
+            # Build cycle path for error message
+            local deps=$(jq -r --arg id "$task_id" '.tasks[] | select(.id == $id) | .depends_on | join(" -> ")' "$PLAN_FILE")
+            echo -e "${RED}[plan]${NC} Circular dependency detected involving task '$task_id'" >&2
+            echo -e "${RED}[plan]${NC} Dependencies: $task_id -> $deps" >&2
+            return 1
+        fi
+    done
+
+    return 0
+}
+
+# Validate that adding a dependency won't create a cycle
+# Args: $1=task_id, $2=new_dependency
+# Returns: 0 if safe, 1 if would create cycle
+_would_create_cycle() {
+    local task_id="$1"
+    local new_dep="$2"
+
+    # Check if the new dependency (or any of its ancestors) depends on task_id
+    # This would create a cycle: task_id -> new_dep -> ... -> task_id
+    _check_jq || return 1
+
+    if [[ ! -f "$PLAN_FILE" ]]; then
+        return 0
+    fi
+
+    # Use BFS to check if new_dep can reach task_id through its dependencies
+    local queue="$new_dep"
+    local visited=""
+
+    while [[ -n "$queue" ]]; do
+        # Pop first item from queue
+        local current="${queue%% *}"
+        if [[ "$queue" == *" "* ]]; then
+            queue="${queue#* }"
+        else
+            queue=""
+        fi
+
+        # Skip if already visited
+        if [[ " $visited " == *" $current "* ]]; then
+            continue
+        fi
+        visited="$visited $current"
+
+        # Check if we reached task_id (cycle!)
+        if [[ "$current" == "$task_id" ]]; then
+            return 1  # Would create cycle
+        fi
+
+        # Add dependencies of current to queue
+        local deps=$(jq -r --arg id "$current" '.tasks[] | select(.id == $id) | .depends_on[]? // empty' "$PLAN_FILE" 2>/dev/null)
+        for dep in $deps; do
+            queue="$queue $dep"
+        done
+    done
+
+    return 0  # Safe to add
+}
+
 # Generate unique plan ID
 _generate_plan_id() {
     echo "plan_$(date +%Y%m%d_%H%M%S)_$(head -c 4 /dev/urandom | xxd -p)"
@@ -109,9 +210,19 @@ plan_add_task() {
 
     local created_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    # Build depends_on array
+    # Build depends_on array and validate each dependency
     local deps_json="[]"
     if [[ -n "$depends_on" ]]; then
+        # Validate dependencies exist and won't create cycles
+        IFS=',' read -ra dep_array <<< "$depends_on"
+        for dep in "${dep_array[@]}"; do
+            dep=$(echo "$dep" | xargs)  # trim whitespace
+            # Check if dependency exists
+            local dep_exists=$(jq -r --arg id "$dep" '.tasks[] | select(.id == $id) | .id' "$PLAN_FILE" 2>/dev/null)
+            if [[ -z "$dep_exists" ]]; then
+                echo -e "${YELLOW}[plan]${NC} Warning: Dependency '$dep' does not exist yet." >&2
+            fi
+        done
         deps_json=$(echo "$depends_on" | tr ',' '\n' | xargs -I{} echo '"{}"' | jq -s '.')
     fi
 
@@ -136,6 +247,15 @@ plan_add_task() {
          "commits": []
        }] | .updated_at = $created' \
        "$PLAN_FILE" > "$temp_file" && mv "$temp_file" "$PLAN_FILE"
+
+    # Verify no circular dependencies were introduced
+    if ! _check_circular_dependencies; then
+        echo -e "${RED}[plan]${NC} Removing task '$task_id' due to circular dependency." >&2
+        # Remove the task we just added
+        local rollback_file=$(mktemp)
+        jq --arg id "$task_id" 'del(.tasks[] | select(.id == $id))' "$PLAN_FILE" > "$rollback_file" && mv "$rollback_file" "$PLAN_FILE"
+        return 1
+    fi
 
     echo -e "${GREEN}[plan]${NC} Added task: $task_id"
 }
@@ -287,15 +407,37 @@ plan_get_ready_tasks() {
         return 0
     fi
 
+    # First, check for circular dependencies (deadlock detection)
+    if ! _check_circular_dependencies 2>/dev/null; then
+        echo -e "${RED}[plan]${NC} ERROR: Circular dependencies detected - plan is deadlocked!" >&2
+        echo -e "${RED}[plan]${NC} Fix dependencies manually in $PLAN_FILE or use plan_archive to start fresh." >&2
+        echo "[]"
+        return 1
+    fi
+
     # Get merged task IDs
     local merged_ids=$(jq -r '[.tasks[] | select(.status == "merged") | .id]' "$PLAN_FILE")
 
     # Get pending tasks where all dependencies are merged
-    jq --argjson merged "$merged_ids" \
+    local ready_tasks=$(jq --argjson merged "$merged_ids" \
        '[.tasks[] | select(
          .status == "pending" and
          ((.depends_on | length) == 0 or (.depends_on | all(. as $dep | $merged | index($dep))))
-       )]' "$PLAN_FILE"
+       )]' "$PLAN_FILE")
+
+    # Warn if there are pending tasks but none are ready (possible unresolvable deps)
+    local pending_count=$(jq '[.tasks[] | select(.status == "pending")] | length' "$PLAN_FILE")
+    local ready_count=$(echo "$ready_tasks" | jq 'length')
+    local in_progress_count=$(jq '[.tasks[] | select(.status == "in_progress")] | length' "$PLAN_FILE")
+
+    if [[ "$pending_count" -gt 0 && "$ready_count" -eq 0 && "$in_progress_count" -eq 0 ]]; then
+        echo -e "${YELLOW}[plan]${NC} WARNING: $pending_count pending task(s) but none ready to start." >&2
+        echo -e "${YELLOW}[plan]${NC} Tasks may have unresolvable dependencies (missing dependency tasks)." >&2
+        # List the blocked tasks
+        jq -r '.tasks[] | select(.status == "pending") | "  - \(.id) depends on: \(.depends_on | join(", "))"' "$PLAN_FILE" >&2
+    fi
+
+    echo "$ready_tasks"
 }
 
 # Get in-progress tasks

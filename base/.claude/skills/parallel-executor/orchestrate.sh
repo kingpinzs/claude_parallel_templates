@@ -12,6 +12,10 @@ SESSION_FILE="$SESSION_DIR/session.json"
 AUTO_MERGE=false
 POLL_INTERVAL=30
 
+# Source file locking utilities
+source "$SCRIPT_DIR/filelock.sh" 2>/dev/null || true
+USE_FLOCK=$(check_flock 2>/dev/null && echo "true" || echo "false")
+
 # Parse arguments
 for arg in "$@"; do
     case $arg in
@@ -35,34 +39,49 @@ log() { echo -e "${GREEN}[orchestrate]${NC} $1"; }
 warn() { echo -e "${YELLOW}[orchestrate]${NC} $1"; }
 error() { echo -e "${RED}[orchestrate]${NC} $1"; }
 
-# Update session status
+# Update session status (with optional file locking)
 update_session_status() {
     local status=$1
     if [[ -f "$SESSION_FILE" ]] && command -v jq &> /dev/null; then
-        local temp_file=$(mktemp)
-        jq --arg status "$status" \
-           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-           '.status = $status | .updated_at = $updated' \
-           "$SESSION_FILE" > "$temp_file" && mv "$temp_file" "$SESSION_FILE"
+        if [[ "$USE_FLOCK" == "true" ]]; then
+            atomic_jq_update "$SESSION_FILE" \
+                --arg status "$status" \
+                --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                '.status = $status | .updated_at = $updated'
+        else
+            local temp_file=$(mktemp)
+            jq --arg status "$status" \
+               --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+               '.status = $status | .updated_at = $updated' \
+               "$SESSION_FILE" > "$temp_file" && mv "$temp_file" "$SESSION_FILE"
+        fi
     fi
 }
 
-# Update individual agent status
+# Update individual agent status (with optional file locking)
 update_agent_status() {
     local name=$1
     local status=$2
     local agent_file="$SESSION_DIR/agents/${name}.json"
 
     if [[ -f "$agent_file" ]] && command -v jq &> /dev/null; then
-        local temp_file=$(mktemp)
         local completed_at="null"
         [[ "$status" == "completed" || "$status" == "failed" ]] && completed_at="\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\""
 
-        jq --arg status "$status" \
-           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-           --argjson completed "$completed_at" \
-           '.status = $status | .updated_at = $updated | .completed_at = $completed' \
-           "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+        if [[ "$USE_FLOCK" == "true" ]]; then
+            atomic_jq_update "$agent_file" \
+                --arg status "$status" \
+                --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                --argjson completed "$completed_at" \
+                '.status = $status | .updated_at = $updated | .completed_at = $completed'
+        else
+            local temp_file=$(mktemp)
+            jq --arg status "$status" \
+               --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+               --argjson completed "$completed_at" \
+               '.status = $status | .updated_at = $updated | .completed_at = $completed' \
+               "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+        fi
     fi
 }
 
@@ -101,15 +120,27 @@ update_agent_phase() {
     local agent_file="$SESSION_DIR/agents/${name}.json"
 
     if [[ -f "$agent_file" ]] && command -v jq &> /dev/null && [[ "$new_phase" != "unknown" ]]; then
-        # Get previous phase to detect change
-        local prev_phase=$(jq -r '.phase.current // "unknown"' "$agent_file" 2>/dev/null)
+        # Get previous phase to detect change (with optional locking)
+        local prev_phase
+        if [[ "$USE_FLOCK" == "true" ]]; then
+            prev_phase=$(atomic_jq_read "$agent_file" -r '.phase.current // "unknown"' 2>/dev/null)
+        else
+            prev_phase=$(jq -r '.phase.current // "unknown"' "$agent_file" 2>/dev/null)
+        fi
 
-        # Update state file
-        local temp_file=$(mktemp)
-        jq --arg phase "$new_phase" \
-           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-           '.phase.current = $phase | .updated_at = $updated | .recovery_point.phase = $phase' \
-           "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+        # Update state file (with optional locking)
+        if [[ "$USE_FLOCK" == "true" ]]; then
+            atomic_jq_update "$agent_file" \
+                --arg phase "$new_phase" \
+                --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                '.phase.current = $phase | .updated_at = $updated | .recovery_point.phase = $phase'
+        else
+            local temp_file=$(mktemp)
+            jq --arg phase "$new_phase" \
+               --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+               '.phase.current = $phase | .updated_at = $updated | .recovery_point.phase = $phase' \
+               "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+        fi
 
         # If phase changed, invoke checkpoint.sh to update recovery context
         if [[ "$prev_phase" != "$new_phase" ]] && [[ "$prev_phase" != "unknown" ]]; then

@@ -14,6 +14,10 @@ PIDS_FILE="../.parallel-pids"
 CHECK_ONLY=false
 MAX_TURNS=100
 
+# Source file locking utilities
+source "$SCRIPT_DIR/filelock.sh" 2>/dev/null || true
+USE_FLOCK=$(check_flock 2>/dev/null && echo "true" || echo "false")
+
 # Parse arguments
 for arg in "$@"; do
     case $arg in
@@ -72,6 +76,9 @@ fi
 declare -a RESUMABLE_AGENTS=()
 declare -a AGENT_DETAILS=()
 
+# Track agents that exceeded max resume attempts
+declare -a EXCEEDED_AGENTS=()
+
 for agent_file in "$SESSION_DIR/agents/"*.json; do
     [[ -f "$agent_file" ]] || continue
 
@@ -84,6 +91,8 @@ for agent_file in "$SESSION_DIR/agents/"*.json; do
     phase=$(jq -r '.phase.current' "$agent_file")
     pid=$(jq -r '.pid' "$agent_file")
     resume_prompt=$(jq -r '.recovery_point.resume_prompt' "$agent_file")
+    resume_count=$(jq -r '.resume_count // 0' "$agent_file")
+    max_resume=$(jq -r '.max_resume_attempts // 3' "$agent_file")
 
     # Check if agent needs resuming
     needs_resume=false
@@ -115,18 +124,57 @@ for agent_file in "$SESSION_DIR/agents/"*.json; do
     esac
 
     if $needs_resume; then
-        RESUMABLE_AGENTS+=("$name")
-        AGENT_DETAILS+=("$name|$task|$scope|$worktree|$branch|$phase|$resume_prompt|$reason")
+        # Check if exceeded max resume attempts
+        if [[ $resume_count -ge $max_resume ]]; then
+            EXCEEDED_AGENTS+=("$name|$resume_count|$max_resume|$phase")
+            # Mark agent as failed due to exceeded attempts (with optional locking)
+            if [[ "$USE_FLOCK" == "true" ]]; then
+                atomic_jq_update "$agent_file" \
+                    --arg status "exceeded_retries" \
+                    --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                    '.status = $status | .updated_at = $updated'
+            else
+                temp_file=$(mktemp)
+                jq --arg status "exceeded_retries" \
+                   --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                   '.status = $status | .updated_at = $updated' \
+                   "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+            fi
+        else
+            RESUMABLE_AGENTS+=("$name")
+            AGENT_DETAILS+=("$name|$task|$scope|$worktree|$branch|$phase|$resume_prompt|$reason|$resume_count")
+        fi
     fi
 done
+
+# Report exceeded agents
+if [[ ${#EXCEEDED_AGENTS[@]} -gt 0 ]]; then
+    echo ""
+    warn "═══════════════════════════════════════════════════════════"
+    warn "    AGENTS EXCEEDED MAXIMUM RESUME ATTEMPTS"
+    warn "═══════════════════════════════════════════════════════════"
+    for exceeded in "${EXCEEDED_AGENTS[@]}"; do
+        IFS='|' read -r exc_name exc_count exc_max exc_phase <<< "$exceeded"
+        echo -e "  ${RED}✗${NC} $exc_name: $exc_count/$exc_max attempts (last phase: $exc_phase)"
+    done
+    echo ""
+    warn "These agents have been marked as 'exceeded_retries' and will not be resumed."
+    warn "To retry, manually reset resume_count in the agent state file or delete and respawn."
+    echo ""
+fi
 
 # Report findings
 if [[ ${#RESUMABLE_AGENTS[@]} -eq 0 ]]; then
     if $CHECK_ONLY; then
-        echo '{"resumable": false, "reason": "No agents need resuming"}'
+        exceeded_count=${#EXCEEDED_AGENTS[@]}
+        if [[ $exceeded_count -gt 0 ]]; then
+            echo "{\"resumable\": false, \"reason\": \"$exceeded_count agent(s) exceeded max resume attempts\", \"exceeded_count\": $exceeded_count}"
+        else
+            echo '{"resumable": false, "reason": "No agents need resuming"}'
+        fi
         exit 0
     else
-        log "No agents need resuming."
+        log "No agents available to resume."
 
         # Check if any are still running
         running=0
@@ -175,10 +223,11 @@ echo ""
 > "$PIDS_FILE"
 
 for detail in "${AGENT_DETAILS[@]}"; do
-    IFS='|' read -r name task scope worktree branch phase resume_prompt reason <<< "$detail"
+    IFS='|' read -r name task scope worktree branch phase resume_prompt reason resume_count <<< "$detail"
+    new_resume_count=$((resume_count + 1))
 
     echo "─────────────────────────────────────────────────────────────"
-    info "Resuming: $name"
+    info "Resuming: $name (attempt $new_resume_count)"
     echo "  Task: $task"
     echo "  Phase: $phase"
     echo "  Reason: $reason"
@@ -260,27 +309,44 @@ RUNNER_EOF
 
     echo "$pid:$name" >> "$PIDS_FILE"
 
-    # Update agent state
+    # Update agent state with incremented resume count (with optional locking)
     agent_file="$SESSION_DIR/agents/${name}.json"
     if [[ -f "$agent_file" ]]; then
-        temp_file=$(mktemp)
-        jq --argjson pid "$pid" \
-           --arg status "running" \
-           --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-           '.pid = $pid | .status = $status | .updated_at = $updated' \
-           "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+        if [[ "$USE_FLOCK" == "true" ]]; then
+            atomic_jq_update "$agent_file" \
+                --argjson pid "$pid" \
+                --arg status "running" \
+                --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+                --argjson resume_count "$new_resume_count" \
+                '.pid = $pid | .status = $status | .updated_at = $updated | .resume_count = $resume_count'
+        else
+            temp_file=$(mktemp)
+            jq --argjson pid "$pid" \
+               --arg status "running" \
+               --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+               --argjson resume_count "$new_resume_count" \
+               '.pid = $pid | .status = $status | .updated_at = $updated | .resume_count = $resume_count' \
+               "$agent_file" > "$temp_file" && mv "$temp_file" "$agent_file"
+        fi
     fi
 
     log "Spawned: $name (PID: $pid)"
     echo ""
 done
 
-# Update session status
-temp_file=$(mktemp)
-jq --arg status "running" \
-   --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-   '.status = $status | .updated_at = $updated' \
-   "$SESSION_FILE" > "$temp_file" && mv "$temp_file" "$SESSION_FILE"
+# Update session status (with optional locking)
+if [[ "$USE_FLOCK" == "true" ]]; then
+    atomic_jq_update "$SESSION_FILE" \
+        --arg status "running" \
+        --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+        '.status = $status | .updated_at = $updated'
+else
+    temp_file=$(mktemp)
+    jq --arg status "running" \
+       --arg updated "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+       '.status = $status | .updated_at = $updated' \
+       "$SESSION_FILE" > "$temp_file" && mv "$temp_file" "$SESSION_FILE"
+fi
 
 echo "═══════════════════════════════════════════════════════════"
 log "All ${#RESUMABLE_AGENTS[@]} agents resumed!"
