@@ -34,6 +34,14 @@ Analyze the current project state:
    - Build tools (webpack, vite, esbuild, etc.)
    - Test frameworks
 
+5. **Check for recommended Claude Code plugins:**
+   - Run: `claude plugin list 2>/dev/null | grep -q "ralph-wiggum"`
+   - If ralph-wiggum not found, display warning:
+     ```
+     ⚠️  Recommended: Install ralph-wiggum plugin for better autonomous agents
+        Run: claude plugin add ralph-wiggum
+     ```
+
 ## Step 2: Ask Clarifying Questions
 
 Based on detection, ask the user:
@@ -99,6 +107,11 @@ Framework: [detected]
 Build: [command]
 Test: [command]
 Lint: [command]
+
+🔌 Plugins
+────────────────────
+ralph-wiggum: [installed/not installed]
+  (If not installed, show recommendation)
 
 🏗️ Architecture
 ────────────────────

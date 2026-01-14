@@ -5,6 +5,7 @@
 # Options:
 #   --no-orchestrate    Don't auto-start orchestrator
 #   --no-auto-merge     Start orchestrator but don't auto-merge
+#   --max-turns=N       Max turns per agent (default: 100)
 
 set -e
 
@@ -13,8 +14,15 @@ PROJECT=$(basename $(pwd))
 LOGS_DIR="../logs"
 PIDS_FILE="../.parallel-pids"
 MAX_PARALLEL=10
+MAX_TURNS=100
 AUTO_ORCHESTRATE=true
 AUTO_MERGE=true
+
+# Check if ralph-wiggum plugin is available
+RALPH_AVAILABLE=false
+if claude plugin list 2>/dev/null | grep -q "ralph-wiggum"; then
+    RALPH_AVAILABLE=true
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -42,6 +50,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-auto-merge)
             AUTO_MERGE=false
+            shift
+            ;;
+        --max-turns=*)
+            MAX_TURNS="${1#*=}"
             shift
             ;;
         --file)
@@ -100,18 +112,25 @@ for task in "${TASKS[@]}"; do
         [[ -f "package.json" ]] && npm install --silent 2>/dev/null || true
         [[ -f "requirements.txt" ]] && pip install -q -r requirements.txt 2>/dev/null || true
 
-        # Run Claude headless
-        claude -p "Implement this task: $task
+        # Build prompt from template
+        PROMPT=$(cat "$SCRIPT_DIR/agent-prompt.md" | sed "s/{{TASK}}/$task/g")
 
-Instructions:
-1. Follow project conventions in CLAUDE.md
-2. Write clean, tested code
-3. Commit your changes with a descriptive message
-4. Output 'TASK_COMPLETE' when finished
+        # Run Claude headless with structured methodology
+        if $RALPH_AVAILABLE; then
+            # Use ralph-loop for autonomous iteration
+            claude -p "$PROMPT
 
-Begin implementation." \
-            --dangerously-skip-permissions \
-            2>&1 | tee "$logfile"
+Use /ralph-loop to iterate until complete." \
+                --dangerously-skip-permissions \
+                --max-turns $MAX_TURNS \
+                2>&1 | tee "$logfile"
+        else
+            # Fallback: methodology embedded in prompt
+            claude -p "$PROMPT" \
+                --dangerously-skip-permissions \
+                --max-turns $MAX_TURNS \
+                2>&1 | tee "$logfile"
+        fi
 
         echo "TASK_COMPLETE: $name" >> "$logfile"
     ) &
