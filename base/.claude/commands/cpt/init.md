@@ -1,6 +1,6 @@
-# /init - Initialize Parallel Development
+# /cpt:init - Initialize Parallel Development
 
-When the user runs /init, perform the following initialization process:
+When the user runs /cpt:init, perform the following initialization process:
 
 ## Step 1: Project Detection
 

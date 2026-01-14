@@ -34,9 +34,11 @@ npx github:kingpinzs/claude_parallel_templates bmad
 
 Each template contains:
 - `CLAUDE.md` - Protocol instructions appended to target project
-- `.claude/commands/` - Slash commands (e.g., `/worktree:spawn`)
+- `.claude/commands/cpt/` - Slash commands (e.g., `/cpt:spawn`, `/cpt:init`)
 - `.claude/skills/` - Auto-activating skills with shell scripts
 - `.claude/settings.json` - Permissions configuration
+
+After install, Claude is automatically launched with `/cpt:init` to analyze the project.
 
 ## Key Concepts
 

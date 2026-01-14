@@ -6,16 +6,16 @@ arguments:
     required: true
 ---
 
-# /quick-parallel - Fast Goal to Parallel Execution
+# /cpt:quick - Fast Goal to Parallel Execution
 
-When the user runs `/quick-parallel "<goal>"`, analyze the goal and determine if it can be parallelized.
+When the user runs `/cpt:quick "<goal>"`, analyze the goal and determine if it can be parallelized.
 
 ## Step 1: Parse Goal
 
 Extract the goal description from the argument. Examples:
-- `/quick-parallel "Add OAuth authentication and dark mode toggle"`
-- `/quick-parallel "Fix bugs #42 and #38"`
-- `/quick-parallel "Refactor auth module and add tests for API"`
+- `/cpt:quick "Add OAuth authentication and dark mode toggle"`
+- `/cpt:quick "Fix bugs #42 and #38"`
+- `/cpt:quick "Refactor auth module and add tests for API"`
 
 ## Step 2: Analyze Codebase
 
@@ -71,7 +71,7 @@ These tasks touch different parts of the codebase and have no dependencies.
 Ready to spawn 2 parallel agents? (y/n)
 ```
 
-**On confirmation:** Execute spawn using `/worktree:parallel`
+**On confirmation:** Execute spawn using `/cpt:parallel`
 
 ### If Single Task or Coupled Tasks:
 
@@ -101,7 +101,7 @@ Entering plan mode to design implementation...
 
 ### Example 1: Parallelizable
 ```
-/quick-parallel "Add OAuth login and also add a dark mode toggle"
+/cpt:quick "Add OAuth login and also add a dark mode toggle"
 
 Analysis:
 - OAuth → src/auth/ (authentication)
@@ -113,7 +113,7 @@ Result: Offer to spawn 2 agents
 
 ### Example 2: Not Parallelizable
 ```
-/quick-parallel "Add dark mode support"
+/cpt:quick "Add dark mode support"
 
 Analysis:
 - Theme state management → src/context/
@@ -127,7 +127,7 @@ Result: Stay in session, enter plan mode
 
 ### Example 3: Partially Parallelizable
 ```
-/quick-parallel "Add auth, API endpoints, and integration tests"
+/cpt:quick "Add auth, API endpoints, and integration tests"
 
 Analysis:
 - Auth → src/auth/ [P]

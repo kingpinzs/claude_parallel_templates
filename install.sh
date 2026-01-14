@@ -117,8 +117,7 @@ install_base() {
     detect_project
 
     # Create directories
-    mkdir -p .claude/commands/worktree
-    mkdir -p .claude/commands
+    mkdir -p .claude/commands/cpt
     mkdir -p .claude/skills/parallel-executor
 
     # Handle CLAUDE.md based on existing state
@@ -135,8 +134,8 @@ install_base() {
     fi
 
     # Copy commands and skills
-    cp -r "$SCRIPT_DIR/base/.claude/commands/worktree/"* .claude/commands/worktree/
-    cp "$SCRIPT_DIR/base/.claude/commands/init.md" .claude/commands/init.md 2>/dev/null || true
+    mkdir -p .claude/commands/cpt
+    cp -r "$SCRIPT_DIR/base/.claude/commands/cpt/"* .claude/commands/cpt/
     cp -r "$SCRIPT_DIR/base/.claude/skills/parallel-executor/"* .claude/skills/parallel-executor/
     cp "$SCRIPT_DIR/base/.claude/settings.json" .claude/settings.json 2>/dev/null || true
 
@@ -274,61 +273,25 @@ if [[ -f ".claude/.project-state" ]]; then
 fi
 echo ""
 
-# Next steps based on template
-echo "Next Steps:"
-echo "────────────────────────────"
-
-case "$TEMPLATE" in
-    base)
-        echo "  1. Start Claude Code: claude"
-        echo "  2. Run /init to analyze your project and enter plan mode"
-        echo ""
-        echo "  The /init command will:"
-        echo "    - Analyze your codebase structure"
-        echo "    - Ask clarifying questions"
-        echo "    - Generate project-specific CLAUDE.md additions"
-        echo "    - Enter plan mode for your first task"
-        ;;
-    bmad)
-        echo "  1. Start Claude Code: claude"
-        echo "  2. Run /workflow-init to start the BMAD workflow"
-        echo "     (This will guide you through the full BMAD process)"
-        echo ""
-        echo "  Or run /init for basic parallel setup without full BMAD"
-        ;;
-    spec-kit)
-        echo "  1. Start Claude Code: claude"
-        echo "  2. Run /specify to start the Spec Kit workflow"
-        echo "     (This will create a specification for your feature)"
-        echo ""
-        echo "  Or run /init for basic parallel setup without full Spec Kit"
-        ;;
-    all)
-        echo "  1. Start Claude Code: claude"
-        echo "  2. Choose your workflow:"
-        echo "     - /init           - Basic parallel setup"
-        echo "     - /workflow-init  - BMAD Method workflow"
-        echo "     - /specify        - Spec Kit workflow"
-        ;;
-esac
-
-echo ""
+# Commands available
 echo "Commands available:"
 echo "────────────────────────────"
-echo "  /init                            - Initialize and analyze project"
-echo "  /worktree:spawn <name> <prompt>  - Spawn parallel agent"
-echo "  /worktree:list                   - List worktrees"
-echo "  /worktree:parallel <tasks>       - Spawn multiple agents"
-echo "  /worktree:done                   - Merge and cleanup"
+echo "  /cpt:init                  - Initialize and analyze project"
+echo "  /cpt:analyze               - Read-only codebase analysis"
+echo "  /cpt:quick <goal>          - Fast goal → parallel breakdown"
+echo "  /cpt:spawn <name> <prompt> - Spawn single parallel agent"
+echo "  /cpt:parallel <tasks>      - Spawn multiple agents"
+echo "  /cpt:list                  - List worktrees"
+echo "  /cpt:done                  - Merge and cleanup"
 
 if [[ "$TEMPLATE" == "bmad" ]] || [[ "$TEMPLATE" == "all" ]]; then
-    echo "  /workflow-init                   - Start BMAD workflow"
-    echo "  /bmad:parallel-story <file>      - BMAD story parallel"
+    echo "  /workflow-init             - Start BMAD workflow"
+    echo "  /bmad:parallel-story       - BMAD story parallel"
 fi
 
 if [[ "$TEMPLATE" == "spec-kit" ]] || [[ "$TEMPLATE" == "all" ]]; then
-    echo "  /specify                         - Start Spec Kit workflow"
-    echo "  /spec:parallel-tasks <file>      - Spec Kit parallel"
+    echo "  /specify                   - Start Spec Kit workflow"
+    echo "  /spec:parallel-tasks       - Spec Kit parallel"
 fi
 
 echo ""
@@ -342,3 +305,9 @@ if [[ "$IS_GIT_REPO" == "true" ]] && [[ "$IS_BARE_REPO" != "true" ]]; then
     echo "  git worktree add main main"
     echo ""
 fi
+
+# Auto-launch Claude with /cpt:init
+echo ""
+log "Launching Claude Code..."
+echo ""
+exec claude -p "/cpt:init"

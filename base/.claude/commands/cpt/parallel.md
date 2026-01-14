@@ -12,12 +12,12 @@ Create multiple worktrees and spawn parallel Claude sessions for each task.
 
 **Option 1: Comma-separated tasks**
 ```
-/worktree:parallel "add auth, create api, build ui"
+/cpt:parallel "add auth, create api, build ui"
 ```
 
 **Option 2: Tasks file**
 ```
-/worktree:parallel tasks.md
+/cpt:parallel tasks.md
 ```
 
 Tasks file format:
@@ -89,7 +89,7 @@ Commit when complete with descriptive message." \
 
 ## After Completion
 
-Run `/worktree:list` to see status, then `/worktree:done <name>` for each, or:
+Run `/cpt:list` to see status, then `/cpt:done <name>` for each, or:
 
 ```bash
 # Merge all completed worktrees

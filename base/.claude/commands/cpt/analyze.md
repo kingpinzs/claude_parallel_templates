@@ -2,9 +2,9 @@
 description: Analyze codebase structure without taking action
 ---
 
-# /analyze - Read-Only Codebase Analysis
+# /cpt:analyze - Read-Only Codebase Analysis
 
-When the user runs `/analyze`, perform a comprehensive analysis of the project without taking any action. This is useful for understanding the codebase before deciding what to work on.
+When the user runs `/cpt:analyze`, perform a comprehensive analysis of the project without taking any action. This is useful for understanding the codebase before deciding what to work on.
 
 ## Analysis Steps
 
@@ -101,6 +101,6 @@ Run /init to set up for development, or describe what you'd like to work on.
 ## Notes
 
 - This command is READ-ONLY - it never modifies files or spawns agents
-- Use this to understand a project before running /init or /quick-parallel
+- Use this to understand a project before running /init or /cpt:quick
 - GitHub data requires the `gh` CLI to be installed and authenticated
 - If no GitHub remote, the GitHub sections are skipped

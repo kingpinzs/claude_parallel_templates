@@ -49,11 +49,14 @@ Core parallel execution without any spec framework.
 base/
 ├── CLAUDE.md                           # Parallel protocol
 ├── .claude/
-│   ├── commands/worktree/
-│   │   ├── spawn.md                    # /worktree:spawn
-│   │   ├── list.md                     # /worktree:list
-│   │   ├── done.md                     # /worktree:done
-│   │   └── parallel.md                 # /worktree:parallel
+│   ├── commands/cpt/
+│   │   ├── init.md                     # /cpt:init
+│   │   ├── analyze.md                  # /cpt:analyze
+│   │   ├── quick.md                    # /cpt:quick
+│   │   ├── spawn.md                    # /cpt:spawn
+│   │   ├── parallel.md                 # /cpt:parallel
+│   │   ├── list.md                     # /cpt:list
+│   │   └── done.md                     # /cpt:done
 │   ├── skills/parallel-executor/
 │   │   ├── SKILL.md                    # Auto-activation
 │   │   ├── spawn.sh                    # Spawn agents
@@ -63,10 +66,13 @@ base/
 ```
 
 **Commands:**
-- `/worktree:spawn auth "Implement authentication"` - Single agent
-- `/worktree:parallel "task1, task2, task3"` - Multiple agents
-- `/worktree:list` - Show all worktrees
-- `/worktree:done` - Merge and cleanup
+- `/cpt:init` - Initialize and analyze project (auto-runs after install)
+- `/cpt:analyze` - Read-only codebase analysis
+- `/cpt:quick "goal"` - Fast goal → parallel breakdown
+- `/cpt:spawn auth "Implement authentication"` - Single agent
+- `/cpt:parallel "task1, task2, task3"` - Multiple agents
+- `/cpt:list` - Show all worktrees
+- `/cpt:done` - Merge and cleanup
 
 ### BMAD Template
 
